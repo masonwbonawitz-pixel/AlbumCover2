@@ -1,0 +1,9 @@
+# Netlify configuration for admin panel
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+

@@ -1,0 +1,21 @@
+# Netlify configuration file
+[build]
+  # No build process needed - static files only
+  publish = "."
+
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/mobile/*"
+  to = "/mobile/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/desktop/*"
+  to = "/desktop.html"
+  status = 200
+

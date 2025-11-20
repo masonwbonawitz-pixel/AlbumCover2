@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Edit Prices</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin-bottom: 30px;
+            color: #333;
+        }
+        .price-group {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .price-group:last-child {
+            border-bottom: none;
+        }
+        .price-group h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #666;
+        }
+        .price-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+        .price-item label {
+            font-weight: 500;
+            color: #333;
+            flex: 1;
+        }
+        .price-item input {
+            width: 120px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .price-item .currency {
+            margin-left: 8px;
+            color: #666;
+        }
+        .image-upload {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .image-upload input[type="file"] {
+            display: none;
+        }
+        .image-upload-btn {
+            padding: 6px 12px;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .image-upload-btn:hover {
+            background: #555;
+        }
+        .image-preview {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            display: none;
+        }
+        .image-preview.show {
+            display: block;
+        }
+        .save-btn {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+            width: 100%;
+        }
+        .save-btn:hover {
+            background: #555;
+        }
+        .save-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Edit Prices</h1>
+        <div id="price-editor"></div>
+        <button class="save-btn" onclick="savePrices()">Save Prices</button>
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        let prices = {};
+
+        async function loadPrices() {
+            try {
+                const response = await fetch('/admin/prices/api');
+                prices = await response.json();
+            } catch (error) {
+                showStatus('error', 'Failed to load prices: ' + error.message);
+            }
+        }
+
+        async function loadImages() {
+            try {
+                const response = await fetch('/admin/images/api');
+                const images = await response.json();
+                return images || {};
+            } catch (error) {
+                console.error('Failed to load images:', error);
+                return {};
+            }
+        }
+
+        async function renderPrices() {
+            const editor = document.getElementById('price-editor');
+            editor.innerHTML = '';
+            
+            const images = await loadImages();
+
+            // Grid sizes
+            const gridGroup = document.createElement('div');
+            gridGroup.className = 'price-group';
+            gridGroup.innerHTML = '<h2>Grid Sizes</h2>';
+            ['48x48', '75x75', '96x96'].forEach(size => {
+                const item = createPriceInput(size, prices[size] || 0);
+                gridGroup.appendChild(item);
+            });
+            editor.appendChild(gridGroup);
+
+            // Stand Options
+            const standGroup = document.createElement('div');
+            standGroup.className = 'price-group';
+            standGroup.innerHTML = '<h2>Stand Options</h2>';
+            [
+                { key: 'stand', label: 'Stand', hasImage: true }
+            ].forEach(item => {
+                const input = createPriceInput(item.key, prices[item.key] || 0, item.label, item.hasImage, images[item.key]);
+                standGroup.appendChild(input);
+            });
+            editor.appendChild(standGroup);
+
+            // Add-ons
+            const addonsGroup = document.createElement('div');
+            addonsGroup.className = 'price-group';
+            addonsGroup.innerHTML = '<h2>Add-ons</h2>';
+            [
+                { key: 'wall_mounting_dots', label: 'Wall Mounting Dots (Pack of 8)', hasImage: true }
+            ].forEach(item => {
+                const input = createPriceInput(item.key, prices[item.key] || 0, item.label, item.hasImage, images[item.key]);
+                addonsGroup.appendChild(input);
+            });
+            editor.appendChild(addonsGroup);
+        }
+
+        function createPriceInput(key, value, label = null, hasImage = false, imageUrl = null) {
+            const item = document.createElement('div');
+            item.className = 'price-item';
+            const displayLabel = label || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            
+            const imageSection = hasImage ? `
+                <div class="image-upload">
+                    <input type="file" id="image-${key}" accept="image/*" onchange="uploadImage('${key}', this.files[0])">
+                    <button class="image-upload-btn" onclick="document.getElementById('image-${key}').click()">Upload Image</button>
+                    <img id="preview-${key}" class="image-preview ${imageUrl ? 'show' : ''}" src="${imageUrl || ''}" alt="${displayLabel}">
+                </div>
+            ` : '';
+            
+            item.innerHTML = `
+                <div style="flex: 1;">
+                    <label>${displayLabel}</label>
+                    ${imageSection}
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <span class="currency">$</span>
+                    <input type="number" step="0.01" min="0" id="price-${key}" value="${value}" onchange="updatePrice('${key}', this.value)">
+                </div>
+            `;
+            return item;
+        }
+
+        async function uploadImage(key, file) {
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('key', key);
+            
+            try {
+                const response = await fetch('/admin/images/api', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    const preview = document.getElementById(`preview-${key}`);
+                    preview.src = result.imageUrl;
+                    preview.classList.add('show');
+                    showStatus('success', 'Image uploaded successfully!');
+                } else {
+                    showStatus('error', 'Failed to upload image: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                showStatus('error', 'Error uploading image: ' + error.message);
+            }
+        }
+
+        function updatePrice(key, value) {
+            prices[key] = parseFloat(value) || 0;
+        }
+
+        async function savePrices() {
+            const btn = document.querySelector('.save-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+
+            try {
+                const response = await fetch('/admin/prices/api', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(prices)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showStatus('success', 'Prices saved successfully!');
+                } else {
+                    showStatus('error', 'Failed to save prices: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                showStatus('error', 'Error saving prices: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save Prices';
+            }
+        }
+
+        function showStatus(type, message) {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+            status.style.display = 'block';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+
+        // Load prices on page load
+        loadPrices().then(() => {
+            renderPrices();
+        });
+    </script>
+</body>
+</html>
+

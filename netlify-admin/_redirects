@@ -1,0 +1,5 @@
+# Netlify redirects for admin panel
+# Serve admin.html as index
+/admin.html /index.html 200
+/admin /index.html 200
+

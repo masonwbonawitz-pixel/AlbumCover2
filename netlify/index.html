@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Album Cover Mosaic Builder</title>
+    <script>
+        // Device detection and load appropriate content at root (no redirect)
+        (function() {
+            // Check URL parameters first (for testing)
+            const urlParams = new URLSearchParams(window.location.search);
+            const forceMobile = urlParams.get('mobile') === 'true';
+            const forceDesktop = urlParams.get('desktop') === 'true';
+            
+            // Detect if device is mobile/tablet
+            function isMobileDevice() {
+                // Check screen width
+                if (window.innerWidth <= 1024) {
+                    return true;
+                }
+                
+                // Check user agent
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            }
+            
+            // Determine which file to load
+            let fileToLoad;
+            if (forceMobile) {
+                fileToLoad = '/mobile/index.html';
+            } else if (forceDesktop) {
+                fileToLoad = '/desktop.html';
+            } else if (isMobileDevice()) {
+                fileToLoad = '/mobile/index.html';
+            } else {
+                fileToLoad = '/desktop.html';
+            }
+            
+            // Load the appropriate file content
+            fetch(fileToLoad)
+                .then(response => response.text())
+                .then(html => {
+                    document.open();
+                    document.write(html);
+                    document.close();
+                })
+                .catch(error => {
+                    console.error('Error loading file:', error);
+                    document.body.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif;"><div style="text-align: center;"><p>Error loading page. Please try again.</p></div></div>';
+                });
+        })();
+    </script>
+</head>
+<body>
+    <div style="display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="text-align: center;">
+            <p>Loading...</p>
+            <p style="font-size: 14px; color: #666; margin-top: 10px;">Loading the appropriate view...</p>
+        </div>
+    </div>
+</body>
+</html>

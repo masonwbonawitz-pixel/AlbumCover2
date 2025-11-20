@@ -1,0 +1,7 @@
+# Netlify redirects file
+# Root is handled by index.html which loads mobile/desktop based on device
+
+# Keep explicit routes for testing
+/mobile/* /mobile/index.html 200
+/desktop/* /desktop.html 200
+
