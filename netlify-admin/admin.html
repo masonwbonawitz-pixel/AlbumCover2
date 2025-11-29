@@ -1013,6 +1013,37 @@
                     </div>
                 </div>
 
+                <!-- STL Upload Section -->
+                <div class="section" id="stl-section" style="margin-top: 30px;">
+                    <div class="section-label" id="admin-section-stl" contenteditable="true" style="cursor: text; padding: 2px 4px; border-radius: 3px; transition: background-color 0.2s; display: inline-block; min-width: 150px;">STL File Upload</div>
+                    <div class="stl-section">
+                        <div class="stl-item">
+                            <span class="stl-label">48×48 STL:</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="stl-upload-btn" onclick="document.getElementById('admin-stl-upload-48').click()">Upload STL</button>
+                                <input type="file" id="admin-stl-upload-48" accept=".stl" style="display: none;" onchange="uploadSTL(48, this.files[0])">
+                                <span class="stl-status" id="admin-stl-status-48x48">No file</span>
+                            </div>
+                        </div>
+                        <div class="stl-item">
+                            <span class="stl-label">75×75 STL:</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="stl-upload-btn" onclick="document.getElementById('admin-stl-upload-75').click()">Upload STL</button>
+                                <input type="file" id="admin-stl-upload-75" accept=".stl" style="display: none;" onchange="uploadSTL(75, this.files[0])">
+                                <span class="stl-status" id="admin-stl-status-75x75">No file</span>
+                            </div>
+                        </div>
+                        <div class="stl-item">
+                            <span class="stl-label">96×96 STL:</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="stl-upload-btn" onclick="document.getElementById('admin-stl-upload-96').click()">Upload STL</button>
+                                <input type="file" id="admin-stl-upload-96" accept=".stl" style="display: none;" onchange="uploadSTL(96, this.files[0])">
+                                <span class="stl-status" id="admin-stl-status-96x96">No file</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Info Box -->
                 <div class="info-box" style="background: transparent; border: none; padding: 20px; margin: 20px 0; text-align: center; max-width: 100%; box-sizing: border-box;">
                     <input type="text" class="editable-text" id="admin-info-title" value="Custom Brick Mosaic Designer" style="font-size: 16px; font-weight: bold; margin-bottom: 15px; text-align: center; width: 100%;">
@@ -1748,8 +1779,7 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
             await loadPrices();
             await loadImages();
             await loadTextContent();
-            // STL status check removed - STL upload section removed from admin panel
-            // await checkSTLStatus();
+            await checkSTLStatus();
             // Setup color editor after content is loaded
             setupColorEditor();
         });

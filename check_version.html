@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Version Checker</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .check {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .pass { color: green; font-weight: bold; }
+        .fail { color: red; font-weight: bold; }
+        pre {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mobile View Version Checker</h1>
+    <div id="results"></div>
+    
+    <script>
+        async function checkVersion() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Loading...</p>';
+            
+            try {
+                // Fetch the mobile page
+                const response = await fetch('/mobile/fresh');
+                const html = await response.text();
+                
+                let checks = [];
+                
+                // Check 1: setupCropCanvasListeners function exists
+                const hasSetupFunction = html.includes('function setupCropCanvasListeners');
+                checks.push({
+                    name: 'setupCropCanvasListeners function exists',
+                    pass: hasSetupFunction,
+                    details: hasSetupFunction ? '✓ Found' : '✗ Not found'
+                });
+                
+                // Check 2: Fixed 400px dimensions on size-panel-img
+                const hasFixedImg = html.includes('size-panel-img') && html.includes('width: 400px');
+                checks.push({
+                    name: 'size-panel-img has fixed 400px width',
+                    pass: hasFixedImg,
+                    details: hasFixedImg ? '✓ Found' : '✗ Not found'
+                });
+                
+                // Check 3: Fixed 400px dimensions on size-panel-canvas
+                const hasFixedCanvas = html.includes('size-panel-canvas') && html.includes('width: 400px');
+                checks.push({
+                    name: 'size-panel-canvas has fixed 400px width',
+                    pass: hasFixedCanvas,
+                    details: hasFixedCanvas ? '✓ Found' : '✗ Not found'
+                });
+                
+                // Check 4: No duplicate crop-canvas listener
+                const duplicateListenerMatches = html.match(/crop-canvas.*addEventListener.*mousedown/g);
+                const hasDuplicate = duplicateListenerMatches && duplicateListenerMatches.length > 1;
+                checks.push({
+                    name: 'No duplicate crop-canvas event listeners',
+                    pass: !hasDuplicate,
+                    details: hasDuplicate ? `✗ Found ${duplicateListenerMatches.length} instances` : '✓ No duplicates'
+                });
+                
+                // Check 5: setupCropCanvasListeners called for crop-canvas
+                const callsSetupForCropCanvas = html.includes('setupCropCanvasListeners(cropCanvas)') || 
+                                                 html.includes('setupCropCanvasListeners(crop-canvas)');
+                checks.push({
+                    name: 'setupCropCanvasListeners called for crop-canvas',
+                    pass: callsSetupForCropCanvas,
+                    details: callsSetupForCropCanvas ? '✓ Found' : '✗ Not found'
+                });
+                
+                // Check 6: File size (should be around 208KB)
+                const fileSize = new Blob([html]).size;
+                const expectedSize = 200000; // ~208KB
+                const sizeCheck = fileSize > expectedSize * 0.9 && fileSize < expectedSize * 1.2;
+                checks.push({
+                    name: `File size is correct (~${(expectedSize/1024).toFixed(0)}KB)`,
+                    pass: sizeCheck,
+                    details: `File size: ${(fileSize/1024).toFixed(2)}KB ${sizeCheck ? '✓' : '✗'}`
+                });
+                
+                // Display results
+                let htmlOutput = '';
+                checks.forEach(check => {
+                    htmlOutput += `
+                        <div class="check">
+                            <h3 class="${check.pass ? 'pass' : 'fail'}">
+                                ${check.pass ? '✓' : '✗'} ${check.name}
+                            </h3>
+                            <p>${check.details}</p>
+                        </div>
+                    `;
+                });
+                
+                // Show key code snippets
+                const setupFunctionIndex = html.indexOf('function setupCropCanvasListeners');
+                if (setupFunctionIndex !== -1) {
+                    const snippet = html.substring(setupFunctionIndex, setupFunctionIndex + 500);
+                    htmlOutput += `
+                        <div class="check">
+                            <h3>Key Code Snippet (setupCropCanvasListeners):</h3>
+                            <pre>${snippet.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        </div>
+                    `;
+                }
+                
+                const cropCanvasSetupIndex = html.indexOf('setupCropCanvasListeners(cropCanvas)');
+                if (cropCanvasSetupIndex !== -1) {
+                    const snippet = html.substring(Math.max(0, cropCanvasSetupIndex - 100), cropCanvasSetupIndex + 200);
+                    htmlOutput += `
+                        <div class="check">
+                            <h3>Key Code Snippet (crop-canvas setup):</h3>
+                            <pre>${snippet.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        </div>
+                    `;
+                }
+                
+                results.innerHTML = htmlOutput;
+                
+            } catch (error) {
+                results.innerHTML = `<div class="check"><h3 class="fail">Error: ${error.message}</h3></div>`;
+            }
+        }
+        
+        checkVersion();
+    </script>
+</body>
+</html>
+
+
+
+
+
+

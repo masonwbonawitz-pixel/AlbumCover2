@@ -330,54 +330,99 @@ def get_triangle_colors_from_image(vertices: np.ndarray, faces: np.ndarray, img_
     # Get triangle centroids
     centroids = tri_verts.mean(axis=1)
     
-    # Map each triangle centroid to image pixel (EXACT frontend logic)
+    # Map each triangle centroid to image pixel
     num_faces = len(faces)
     triangle_colors = np.zeros((num_faces, 3), dtype=np.uint8)
     
-    # Group triangles by pixel location to ensure all triangles in the same pixel
-    # get the exact same color (prevents triangular artifacts)
-    from collections import defaultdict
-    pixel_triangles = defaultdict(list)
+    # For Normal mode (48), use continuous mapping - each triangle maps individually (no pixel grouping)
+    # For other modes, use grid-based mapping with pixel grouping
+    is_normal_mode = (grid_size == 48)
     
-    # Map each triangle to its pixel location (EXACT frontend logic)
-    for face_idx in range(num_faces):
-        cx = centroids[face_idx, 0]
-        cy = centroids[face_idx, 1]
+    if is_normal_mode:
+        # Continuous mapping: each triangle maps individually with bilinear interpolation
+        # This allows smooth gradients and continuous color mapping (completely different from pixelated modes)
+        for face_idx in range(num_faces):
+            cx = centroids[face_idx, 0]
+            cy = centroids[face_idx, 1]
+            
+            # Normalize to [0, 1] range using square bounding box
+            u = max(0.0, min(0.999999, (cx - minX) / sizeX))
+            v = max(0.0, min(0.999999, (cy - minY) / sizeY))
+            
+            # Map to image coordinates (continuous, no grid snapping)
+            # Use exact floating point coordinates for bilinear interpolation
+            img_x = u * (img_width - 1)
+            img_y = (1.0 - v) * (img_height - 1)  # Flip Y: v=0 (top) maps to bottom
+            
+            # Bilinear interpolation for smooth color transitions
+            x0 = int(np.floor(img_x))
+            y0 = int(np.floor(img_y))
+            x1 = min(x0 + 1, img_width - 1)
+            y1 = min(y0 + 1, img_height - 1)
+            
+            # Clamp to valid pixel range
+            x0 = max(0, min(img_width - 1, x0))
+            y0 = max(0, min(img_height - 1, y0))
+            x1 = max(0, min(img_width - 1, x1))
+            y1 = max(0, min(img_height - 1, y1))
+            
+            # Interpolation weights
+            fx = img_x - x0
+            fy = img_y - y0
+            
+            # Get colors from 4 surrounding pixels
+            c00 = img_rgb[y0, x0, :].astype(np.float32)
+            c10 = img_rgb[y0, x1, :].astype(np.float32)
+            c01 = img_rgb[y1, x0, :].astype(np.float32)
+            c11 = img_rgb[y1, x1, :].astype(np.float32)
+            
+            # Bilinear interpolation
+            c0 = c00 * (1 - fx) + c10 * fx
+            c1 = c01 * (1 - fx) + c11 * fx
+            color = c0 * (1 - fy) + c1 * fy
+            
+            # Store interpolated color for this triangle
+            triangle_colors[face_idx] = color.astype(np.uint8)
+    else:
+        # Grid-based mapping for pixelated modes - group triangles by pixel
+        from collections import defaultdict
+        pixel_triangles = defaultdict(list)
         
-        # Normalize to [0, 1] range using square bounding box
-        u = max(0.0, min(0.999999, (cx - minX) / sizeX))
-        v = max(0.0, min(0.999999, (cy - minY) / sizeY))
+        grid = float(grid_size)
         
-        # Snap by selected grid cells (EXACT frontend logic)
-        # Frontend uses selectedGridSize for grid (matches grid_size parameter)
-        grid = float(grid_size)  # Use grid_size parameter, not img_width
+        # Map each triangle to its pixel location
+        for face_idx in range(num_faces):
+            cx = centroids[face_idx, 0]
+            cy = centroids[face_idx, 1]
+            
+            # Normalize to [0, 1] range using square bounding box
+            u = max(0.0, min(0.999999, (cx - minX) / sizeX))
+            v = max(0.0, min(0.999999, (cy - minY) / sizeY))
+            
+            # Calculate grid cell indices
+            cellIdxU = int(np.floor(u * grid))
+            cellIdxV = int(np.floor(v * grid))
+            
+            # Clamp cell indices to valid range [0, grid-1]
+            cellIdxU = max(0, min(int(grid) - 1, cellIdxU))
+            cellIdxV = max(0, min(int(grid) - 1, cellIdxV))
+            
+            # Map grid cell to pixel
+            px = cellIdxU
+            py = int(grid) - 1 - cellIdxV  # Flip Y
+            
+            # Clamp to valid pixel range
+            px = max(0, min(img_width - 1, px))
+            py = max(0, min(img_height - 1, py))
+            
+            # Group triangles by pixel
+            pixel_triangles[(py, px)].append(face_idx)
         
-        # Calculate grid cell indices directly (more precise)
-        cellIdxU = int(np.floor(u * grid))
-        cellIdxV = int(np.floor(v * grid))
-        
-        # Clamp cell indices to valid range [0, grid-1]
-        cellIdxU = max(0, min(int(grid) - 1, cellIdxU))
-        cellIdxV = max(0, min(int(grid) - 1, cellIdxV))
-        
-        # Map grid cell directly to pixel (ensures perfect 1:1 mapping)
-        # Each grid cell maps to exactly one pixel
-        px = cellIdxU
-        py = int(grid) - 1 - cellIdxV  # Flip Y: top row (cellIdxV=0) maps to bottom pixel (py=grid-1)
-        
-        # Clamp to valid pixel range
-        px = max(0, min(img_width - 1, px))
-        py = max(0, min(img_height - 1, py))
-        
-        # Group triangles by pixel
-        pixel_triangles[(py, px)].append(face_idx)
-    
-    # Assign colors: all triangles in the same pixel get the exact same color from the image
-    # This is the only color assignment - no additional edge checks that could cause duplication
-    for (py, px), tri_indices in pixel_triangles.items():
-        pixel_color = img_rgb[py, px, :]  # Get color directly from image
-        for tri_idx in tri_indices:
-            triangle_colors[tri_idx] = pixel_color
+        # Assign colors: all triangles in the same pixel get the exact same color from the image
+        for (py, px), tri_indices in pixel_triangles.items():
+            pixel_color = img_rgb[py, px, :]  # Get color directly from image
+            for tri_idx in tri_indices:
+                triangle_colors[tri_idx] = pixel_color
     
     return triangle_colors
 
@@ -555,22 +600,36 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
 
 
 def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int = 75) -> bytes:
-    img = load_png(png_bytes, grid_size)
+    # For Normal mode (48), keep full resolution; otherwise resize to grid_size
+    is_normal_mode = (grid_size == 48)
+    if is_normal_mode:
+        img = load_png(png_bytes, target_size=None)  # Keep full resolution
+    else:
+        img = load_png(png_bytes, grid_size)
     img_array = get_png_as_array(img)  # Get PNG colors as-is
     vertices, faces = load_stl_vertices_faces(stl_bytes)
-    triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array)
+    # For Normal mode, use actual image dimensions; otherwise use grid_size
+    mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
+    triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     three_mf_bytes = write_3mf(vertices, faces, triangle_colors)
     return three_mf_bytes
 
 
 def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int = 75) -> Tuple[bytes, bytes]:
-    img = load_png(png_bytes, grid_size)
+    # For Normal mode (48), keep full resolution; otherwise resize to grid_size
+    is_normal_mode = (grid_size == 48)
+    if is_normal_mode:
+        img = load_png(png_bytes, target_size=None)  # Keep full resolution
+    else:
+        img = load_png(png_bytes, grid_size)
     img_array = get_png_as_array(img)
     
     # Note: The PNG should already be processed/posterized from the frontend
     # But apply quantization to ensure exact 4 colors
     vertices, faces = load_stl_vertices_faces(stl_bytes)
-    triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, grid_size)
+    # For Normal mode, use actual image dimensions; otherwise use grid_size
+    mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
+    triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
     # Quantize to exact 4 colors (ensures exact values)
     triangle_colors = quantize_to_four_colors(triangle_colors)
@@ -596,19 +655,25 @@ CORS(app, resources={
 @app.route('/')
 def index():
     """API root endpoint - returns API information"""
-    return jsonify({
-        'message': 'Album Cover 3D Color Mapper API',
-        'status': 'running',
-        'endpoints': {
-            'generate': '/generate',
-            'generate_obj': '/generate-obj',
-            'upload_for_checkout': '/upload-for-checkout',
-            'get_prices': '/api/prices',
-            'get_images': '/api/images',
-            'get_content': '/api/content',
-            'admin': '/admin/prices'
-        }
-    })
+    try:
+        return jsonify({
+            'message': 'Album Cover 3D Color Mapper API',
+            'status': 'running',
+            'endpoints': {
+                'generate': '/generate',
+                'generate_obj': '/generate-obj',
+                'upload_for_checkout': '/upload-for-checkout',
+                'get_prices': '/api/prices',
+                'get_images': '/api/images',
+                'get_content': '/api/content',
+                'admin': '/admin/prices'
+            }
+        })
+    except Exception as e:
+        print(f"❌ Error in root route: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
 
 @app.route('/mobile')
 @app.route('/mobile/fresh')
@@ -744,12 +809,20 @@ def generate_obj_route():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/get-stl/<int:size>')
+@app.route('/get-stl/<int:size>', methods=['GET', 'OPTIONS'])
 def get_stl(size):
     """
     Serves the pre-uploaded STL file for the specified grid size.
     Tries multiple filename patterns: {size}x{size}_grid.stl, {size}x{size}.stl
     """
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Cache-Control')
+        return response
+    
     try:
         if size not in [48, 75, 96]:
             return jsonify({'error': f'Invalid grid size: {size}'}), 400
@@ -772,11 +845,16 @@ def get_stl(size):
             return jsonify({'error': f'STL file not found for {size}×{size} grid. Tried: {", ".join(possible_paths)}'}), 404
         
         print(f"📦 Serving STL file: {stl_path}")
-        return send_file(
+        response = send_file(
             stl_path,
             mimetype='application/octet-stream',
             as_attachment=False
         )
+        # Add CORS headers explicitly
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Cache-Control')
+        return response
         
     except Exception as e:
         print(f"❌ Error serving STL: {e}")

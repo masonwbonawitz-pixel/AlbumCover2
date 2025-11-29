@@ -1,0 +1,43 @@
+===========================================
+FRESH MOBILE VIEW LINKS (NO CACHE)
+===========================================
+
+IMPORTANT: Make sure your Flask server is running first!
+Start it with: python3 server.py
+
+Then use ONE of these links:
+
+1. PRIMARY LINK (with cache-busting):
+   http://localhost:5000/mobile/fresh
+
+2. ALTERNATIVE LINK (with timestamp):
+   http://localhost:5000/mobile/1763221741
+
+3. STANDARD LINK (now with no-cache headers):
+   http://localhost:5000/mobile
+
+4. DIRECT FILE PATH (if server not running):
+   file:///Users/masonbonawitz/Desktop/Cursor%20Code%20for%20Rize%20albums/mobile/index.html
+
+===========================================
+TROUBLESHOOTING:
+===========================================
+
+If nothing changes:
+1. Make sure server is running: python3 server.py
+2. Stop the server (Ctrl+C) and restart it
+3. Try opening in an incognito/private window
+4. Try a different browser
+5. Check browser console (F12) for errors
+
+To verify the file was updated:
+- Check file modification time: ls -lh mobile/index.html
+- Look for "setupCropCanvasListeners" in the file
+
+===========================================
+
+
+
+
+
+

@@ -1,0 +1,3538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Album Cover Mosaic Builder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script>
+        // ULTRA-AGGRESSIVE BUTTON REMOVAL - RUNS IMMEDIATELY BEFORE ANYTHING ELSE
+        (function() {
+            'use strict';
+            function killButtons() {
+                // Remove all editor-actions containers
+                document.querySelectorAll('.editor-actions').forEach(el => {
+                    el.remove();
+                    if (el.parentNode) el.parentNode.removeChild(el);
+                });
+                
+                // Find and remove Cancel and Apply buttons
+                document.querySelectorAll('button').forEach(btn => {
+                    const text = btn.textContent.trim();
+                    const onclick = btn.getAttribute('onclick') || '';
+                    const parent = btn.parentElement;
+                    
+                    // Kill Cancel button
+                    if (text === 'Cancel' && onclick.includes('show3DView') && !btn.classList.contains('viewer-btn')) {
+                        btn.remove();
+                        if (btn.parentNode) btn.parentNode.removeChild(btn);
+                    }
+                    
+                    // Kill Apply button
+                    if ((text.includes('Apply') && text.includes('Use This Image')) || 
+                        (onclick.includes('applyPhotoEdits') && !btn.classList.contains('viewer-btn'))) {
+                        btn.remove();
+                        if (btn.parentNode) btn.parentNode.removeChild(btn);
+                    }
+                    
+                    // Kill parent if it's editor-actions
+                    if (parent && parent.classList && parent.classList.contains('editor-actions')) {
+                        parent.remove();
+                        if (parent.parentNode) parent.parentNode.removeChild(parent);
+                    }
+                });
+            }
+            
+            // Run immediately
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', killButtons);
+            } else {
+                killButtons();
+            }
+            
+            // Run continuously
+            setInterval(killButtons, 10);
+            
+            // Override any function that might create these buttons
+            const originalCreateElement = document.createElement;
+            document.createElement = function(tagName) {
+                const el = originalCreateElement.call(this, tagName);
+                if (tagName === 'button' || tagName === 'div') {
+                    setTimeout(killButtons, 0);
+                }
+                return el;
+            };
+            
+            // Watch for any DOM changes
+            const observer = new MutationObserver(killButtons);
+            if (document.body) {
+                observer.observe(document.body, { childList: true, subtree: true });
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                });
+            }
+        })();
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+            background: #FFF4E6;
+            min-height: 100vh;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            overflow-x: hidden;
+        }
+
+        .main-container {
+            display: flex;
+            height: 100vh;
+            max-width: 100vw;
+            overflow-x: hidden;
+            margin: 0 auto;
+        }
+
+        /* Left Panel - 3D Viewer */
+        .viewer-panel {
+            flex: 1;
+            min-width: 0;
+            background: #FFFBF5;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #FFF8F0;
+            border-right: 1px solid #e0e0e0;
+            min-height: 600px; /* ensure visible height when shown */
+        }
+
+        #canvas-container canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Inline editor panel that replaces the 3D view initially */
+        #editor-panel {
+            flex: 1;
+            padding: 20px 24px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #FFFBF5;
+            min-width: 0;
+            max-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .viewer-controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .viewer-btn {
+            background: #E0E0E0;
+            border: 1px solid #333333;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            font-weight: normal;
+            color: #333333;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .viewer-btn:hover {
+            background: #d0d0d0;
+        }
+
+        .viewer-btn.icon-only {
+            padding: 10px;
+            font-size: 18px;
+        }
+
+        .placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #333333;
+            font-size: 16px;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .placeholder-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        /* Right Panel - Controls */
+        .control-panel {
+            flex: 0 0 450px;
+            min-width: 450px;
+            background: #FFFBF5;
+            padding: 40px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            border-left: 1px solid #e0e0e0;
+        }
+
+        .title {
+            font-size: 32px;
+            font-weight: normal;
+            margin-bottom: 10px;
+            color: #E87D3E;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .price {
+            font-size: 20px;
+            color: #333333;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-label {
+            font-size: 13px;
+            font-weight: normal;
+            color: #FF6B35;
+            margin-bottom: 12px;
+            text-transform: none;
+            letter-spacing: 0;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #fafafa;
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover {
+            border-color: #999;
+            background: #f5f5f5;
+        }
+
+        .upload-area.has-file {
+            border-color: #999;
+            background: #f5f5f5;
+        }
+
+        .upload-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        .upload-text {
+            font-size: 14px;
+            color: #333333;
+            margin-bottom: 5px;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .upload-subtext {
+            font-size: 12px;
+            color: #333333;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .grid-options {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .grid-btn {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #333333;
+            background: #E0E0E0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: normal;
+            color: #333333;
+            transition: all 0.2s;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .grid-btn.active {
+            background: #333333;
+            color: #FFFFFF;
+            border-color: #333333;
+        }
+
+        .grid-btn:hover:not(.active) {
+            background: #d0d0d0;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .color-swatch {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+            cursor: pointer;
+            transition: transform 0.2s;
+            position: relative;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+
+        .color-swatch.selected {
+            border: 3px solid #333333;
+            box-shadow: 0 0 0 2px white, 0 0 0 4px #333333;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #333333;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: normal;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #E0E0E0;
+            color: #333333;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .btn-primary {
+            background: #333333;
+            color: #FFFFFF;
+            border: 1px solid #333333;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #444444;
+        }
+
+        .btn-secondary {
+            background: #333333;
+            color: #FFFFFF;
+            border: 1px solid #333333;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #444444;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status-message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #0c5460;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #856404;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-shrink: 0;
+        }
+
+        .panel-title {
+            font-size: 24px;
+            font-weight: normal;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+            color: #E87D3E;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .editor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+
+        .canvas-wrapper {
+            text-align: center;
+            flex-shrink: 0;
+            margin-bottom: 20px;
+        }
+
+        .canvas-label {
+            font-size: 14px;
+            font-weight: normal;
+            margin-bottom: 10px;
+            color: #E87D3E;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .editor-canvas {
+            max-width: 100%;
+            width: 100%;
+            aspect-ratio: 1 / 1; /* keep preview perfectly square */
+            height: auto;
+            border-radius: 10px;
+            border: 2px solid #ddd;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: #ffffff !important;
+            display: block;
+            margin: 0 auto;
+        }
+
+        #png-preview img { background: #ffffff !important; }
+
+        .slider-control {
+            margin-bottom: 20px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: normal;
+            color: #333333;
+            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+            border: none;
+        }
+
+        /* ULTRA-AGGRESSIVE HIDING - MAXIMUM SPECIFICITY */
+        .editor-actions,
+        div.editor-actions,
+        #editor-panel .editor-actions,
+        body .editor-actions,
+        html body .editor-actions {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+        }
+        
+        /* Hide any buttons with Cancel or Apply text */
+        button[onclick*="applyPhotoEdits"]:not(.viewer-btn),
+        #editor-panel button[onclick*="applyPhotoEdits"]:not(.viewer-btn),
+        body button[onclick*="applyPhotoEdits"]:not(.viewer-btn) {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            height: 0 !important;
+            width: 0 !important;
+            position: absolute !important;
+            left: -9999px !important;
+        }
+        
+        /* Desktop view - ensure editor-actions is hidden */
+        @media (min-width: 1025px) {
+            .editor-actions,
+            div.editor-actions,
+            #editor-panel .editor-actions {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                height: 0 !important;
+                width: 0 !important;
+                overflow: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                position: absolute !important;
+                left: -9999px !important;
+            }
+            
+            button[onclick*="applyPhotoEdits"]:not(.viewer-btn) {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                height: 0 !important;
+                width: 0 !important;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .control-panel {
+                width: 100%;
+            }
+
+            #canvas-container {
+                height: 400px;
+            }
+
+            .editor-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Left Panel: Editor (initial) and 3D Viewer -->
+        <div class="viewer-panel">
+            <!-- Inline Editor Panel (shown first) -->
+            <div id="editor-panel" style="position: relative;">
+                <style>
+                    #editor-panel .editor-actions,
+                    #editor-panel button[onclick*="applyPhotoEdits"]:not(.viewer-btn) {
+                        display: none !important;
+                        visibility: hidden !important;
+                        opacity: 0 !important;
+                        height: 0 !important;
+                        width: 0 !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        overflow: hidden !important;
+                    }
+                </style>
+                <script>
+                    // Immediately hide any Cancel or Apply buttons in editor-panel
+                    (function() {
+                        function hideButtons() {
+                            const panel = document.getElementById('editor-panel');
+                            if (!panel) return;
+                            const buttons = panel.querySelectorAll('button');
+                            buttons.forEach(btn => {
+                                const text = btn.textContent.trim();
+                                const onclick = btn.getAttribute('onclick') || '';
+                                if ((text === 'Cancel' && onclick.includes('show3DView')) ||
+                                    (text.includes('Apply') && text.includes('Use This Image')) ||
+                                    (onclick.includes('applyPhotoEdits') && !btn.classList.contains('viewer-btn'))) {
+                                    btn.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; width: 0 !important;';
+                                    btn.remove();
+                                }
+                            });
+                            panel.querySelectorAll('.editor-actions').forEach(el => {
+                                el.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important;';
+                                el.remove();
+                            });
+                        }
+                        hideButtons();
+                        setInterval(hideButtons, 50);
+                    })();
+                </script>
+                <div class="panel-header">
+                    <h2 class="panel-title">Edit Your Photo</h2>
+                    <button class="viewer-btn" onclick="show3DView()">View in 3D</button>
+                </div>
+                <div class="editor-grid" style="margin-top:12px;">
+                    <div class="canvas-wrapper">
+                        <div class="canvas-label">Original (Colored)</div>
+                        <img id="original-image-canvas" class="editor-canvas" style="display: none; object-fit: contain; background: white;" />
+                        <div id="original-image-placeholder" style="display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; background: #f0f0f0; border-radius: 10px; color: #999;">
+                            No image uploaded
+                        </div>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <div class="canvas-label">Processed (Posterized)</div>
+                        <div style="position: relative; display: inline-block; width: 100%;">
+                            <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1; cursor: crosshair;"></canvas>
+                            <div style="position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 5px; z-index: 20;">
+                                <button class="btn" onclick="zoomInProcessed()" style="padding: 8px 12px; font-size: 14px; background: #E0E0E0; border: 1px solid #333333; border-radius: 6px; cursor: pointer; box-shadow: none; color: #333333;" title="Zoom In">+</button>
+                                <button class="btn" onclick="zoomOutProcessed()" style="padding: 8px 12px; font-size: 14px; background: #E0E0E0; border: 1px solid #333333; border-radius: 6px; cursor: pointer; box-shadow: none; color: #333333;" title="Zoom Out">−</button>
+                                <button class="btn" onclick="resetZoomProcessed()" style="padding: 8px 12px; font-size: 14px; background: #E0E0E0; border: 1px solid #333333; border-radius: 6px; cursor: pointer; box-shadow: none; color: #333333;" title="Reset View">□</button>
+                                <button class="btn" onclick="togglePanProcessed()" id="processed-pan-btn" style="padding: 8px 12px; font-size: 14px; background: #E0E0E0; border: 1px solid #333333; border-radius: 6px; cursor: pointer; box-shadow: none; color: #333333;" title="Pan">⤡</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3D Viewer (hidden initially) -->
+            <div id="canvas-container" style="display:none;">
+                <div class="viewer-controls">
+                    <button class="viewer-btn" onclick="showEditorPanel()" id="edit-photo-btn">Edit Photo</button>
+                    <button class="viewer-btn icon-only" onclick="resetCamera()" title="Reset View">↺</button>
+                    <button class="viewer-btn icon-only" onclick="toggleWireframe()" title="Toggle Wireframe">□</button>
+                </div>
+                <div id="three-placeholder" class="placeholder">
+                    <div class="placeholder-icon">□</div>
+                    <div>Upload an STL file to preview your 3D model</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Controls -->
+        <div class="control-panel">
+            <h1 class="title">3D Album Cover Mosaic Builder</h1>
+            <div class="price">Create colorized 3D prints</div>
+
+            <!-- Upload PNG -->
+            <div class="section">
+                <div class="section-label">1. Upload Color Image</div>
+                <div class="upload-area" id="png-upload-area" onclick="document.getElementById('png-input').click()">
+                    <div class="upload-icon">🖼️</div>
+                    <div class="upload-text" id="png-upload-text">Choose image file...</div>
+                    <div class="upload-subtext" id="png-upload-subtext">Will be resized to 75×75 pixels</div>
+            </div>
+                <input type="file" id="png-input" class="file-input" accept=".png,.jpg,.jpeg,.heic,.heif" />
+                
+                <!-- Crop Buttons - Always visible when image is uploaded -->
+                <div id="crop-buttons" style="display: none; margin-top: 15px;">
+                    <button class="btn" id="show-cropper-btn" onclick="showCropper()" style="width: 100%; background: #E0E0E0; color: #333333; border: 1px solid #333333;">
+                        Show Cropper
+                    </button>
+                    <button class="btn" id="hide-cropper-btn" onclick="hideCropper()" style="width: 100%; background: #E0E0E0; color: #333333; border: 1px solid #333333; display: none; margin-top: 10px;">
+                        Hide Cropper ^
+                    </button>
+                </div>
+                
+                <!-- PNG Preview with Crop Tool -->
+                <div id="png-preview" style="display: none; text-align: center; margin-top: 15px;">
+                    <div id="crop-container" style="position: relative; display: inline-block; max-width: 400px; width: 100%;">
+                        <img id="png-preview-img" style="width: 400px; height: 400px; max-width: 400px; max-height: 400px; object-fit: contain; border-radius: 8px; border: 2px solid #ddd; display: block; flex-shrink: 0;" />
+                        <canvas id="crop-canvas" style="position: absolute; top: 0; left: 0; pointer-events: auto; display: none; border: none; background: transparent; z-index: 10;"></canvas>
+                    </div>
+            </div>
+        </div>
+
+            <!-- Grid Size -->
+            <div class="section">
+                <div class="section-label">2. Select Grid Size</div>
+                <div class="grid-options">
+                    <button class="grid-btn" data-size="48" onclick="selectGridSize(48)">48 × 48</button>
+                    <button class="grid-btn active" data-size="75" onclick="selectGridSize(75)">75 × 75</button>
+                    <button class="grid-btn" data-size="96" onclick="selectGridSize(96)">96 × 96</button>
+                </div>
+            </div>
+
+            <!-- STL Model -->
+            <div class="section">
+                <div class="section-label">3. STL Model</div>
+                <div class="upload-area" id="stl-upload-area" onclick="document.getElementById('stl-input').click()">
+                    <div class="upload-icon">📦</div>
+                    <div class="upload-text" id="stl-upload-text">Choose STL file...</div>
+                    <div class="upload-subtext" id="stl-upload-subtext">Or auto-load from server</div>
+                </div>
+                <input type="file" id="stl-input" class="file-input" accept=".stl" style="display: none;" />
+            </div>
+
+            <!-- Image Adjustments (moved to right side) -->
+            <div class="section">
+                <div class="section-label">Image Adjustments</div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Contrast</span>
+                        <span id="contrast-value">1.2</span>
+                    </div>
+                    <input type="range" class="slider" id="contrast-slider" min="0.5" max="2" step="0.1" value="1.2" />
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Brightness</span>
+                        <span id="brightness-value">1.0</span>
+                    </div>
+                    <input type="range" class="slider" id="brightness-slider" min="0.5" max="1.5" step="0.1" value="1.0" />
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Tones</span>
+                        <span id="tones-value">4</span>
+                    </div>
+                    <input type="range" class="slider" id="tones-slider" min="2" max="4" step="1" value="4" />
+                </div>
+            </div>
+
+            <!-- Painting -->
+            <div class="section">
+                <div class="section-label">Painting</div>
+            <div class="color-palette">
+                    <div class="color-swatch selected" data-color="0,0,0" style="background: rgb(0,0,0);" title="Black" onclick="selectPaintColor(0, 0, 0, this)"></div>
+                    <div class="color-swatch" data-color="85,85,85" style="background: rgb(85,85,85);" title="Dark Gray" onclick="selectPaintColor(85, 85, 85, this)"></div>
+                    <div class="color-swatch" data-color="170,170,170" style="background: rgb(170,170,170);" title="Light Gray" onclick="selectPaintColor(170, 170, 170, this)"></div>
+                    <div class="color-swatch" data-color="255,255,255" style="background: rgb(255,255,255);" title="White" onclick="selectPaintColor(255, 255, 255, this)"></div>
+            </div>
+                <div class="slider-control" style="margin-top: 15px;">
+                    <div class="slider-label">
+                        <span>Brush Size</span>
+                        <span id="brush-size-value">1</span>
+                    </div>
+                    <input type="range" class="slider" id="brush-size-slider" min="1" max="10" step="1" value="1" />
+                </div>
+                <div id="undo-redo-buttons" style="display: none; margin-top: 15px; gap: 10px;" class="action-buttons">
+                    <button class="btn" id="undo-btn" onclick="undoPaint()" style="flex: 1; background: #E0E0E0; color: #333333; border: 1px solid #333333;" disabled>← Undo</button>
+                    <button class="btn" id="redo-btn" onclick="redoPaint()" style="flex: 1; background: #E0E0E0; color: #333333; border: 1px solid #333333;" disabled>Redo →</button>
+                </div>
+                <button class="btn" onclick="resetProcessedImage()" style="width: 100%; margin-top: 10px; background: #E0E0E0; color: #333333; border: 1px solid #333333;">
+                    Reset Image
+                </button>
+        </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button class="btn btn-secondary" id="generate-obj-btn" disabled style="flex: 1;">
+                    Generate OBJ
+            </button>
+                <button class="btn" id="checkout-btn" disabled style="flex: 1; background: #333333; color: #FFFFFF; border: 1px solid #333333; margin-top: 10px;">
+                    Proceed to Checkout
+            </button>
+        </div>
+
+            <!-- Status Message -->
+        <div class="status-message" id="status-message"></div>
+
+        <!-- Info Box -->
+        <div class="info-box">
+                <strong>💡 How it works:</strong>
+                Each pixel in your PNG maps to one cube in the STL grid. Colors are preserved exactly as-is.
+            <br><br>
+                <strong>Output:</strong> OBJ file with MTL colors - Import to Bambu Studio and export as 3MF for printing.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Shopify Configuration - UPDATE THIS WITH YOUR SHOPIFY STORE URL
+        const SHOPIFY_PRODUCT_URL = 'https://your-store.myshopify.com/products/3d-album-mosaic'; // UPDATE THIS
+
+        let stlFile = null;
+        let pngFile = null;
+        let pngImage = null;
+        let scene, camera, renderer, controls, currentMesh;
+        let originalGeometry = null;
+        let selectedGridSize = 75;
+        let rawUploadedImage = null;
+        let editorSettings = {
+            contrast: 1.2,
+            brightness: 1.0,
+            pixelSize: 75,
+            tones: 4,
+            blackPoint: 0,
+            whitePoint: 255
+        };
+        // Crop variables
+        let cropperVisible = false;
+        let cropperManuallyHidden = false; // Track if user manually hid the cropper
+        let cropX = 0, cropY = 0, cropSize = 0;
+        let cropInitialized = false; // Track if crop has ever been initialized
+        let isDraggingCrop = false;
+        let isResizingCrop = false;
+        let resizeEdge = ''; // 'left', 'right', 'top', 'bottom', 'topleft', 'topright', 'bottomleft', 'bottomright'
+        let dragStartX = 0, dragStartY = 0;
+        let cropStartX = 0, cropStartY = 0, cropStartSize = 0;
+        // Cropper zoom/pan variables
+        let cropperZoom = 1.0;
+        let cropperPanX = 0;
+        let cropperPanY = 0;
+        let isPanningCropper = false;
+        let panStartX = 0, panStartY = 0;
+        
+        // Paint variables
+        let selectedPaintColor = { r: 0, g: 0, b: 0 }; // Default to black
+        let brushSize = 1; // Brush size in pixels (1 = single pixel, larger = area)
+        let processedImageData = null; // Store the processed image data for pixel editing
+        let originalProcessedImageData = null; // Store the original processed image data (before painting)
+        let undoStack = []; // Stack for undo history
+        let redoStack = []; // Stack for redo history
+        let lastPaintState = null; // Store state before current paint stroke starts
+        let processedZoom = 1.0; // Zoom level for processed canvas
+        let processedZoomOffsetX = 0;
+        let processedZoomOffsetY = 0;
+        let isPanningProcessed = false;
+        let processedPanStartX = 0, processedPanStartY = 0;
+        let zoomMode = null; // 'zoom-in', 'zoom-out', or null
+        let fullOriginalImage = null; // Store the full original uncropped image
+        let fullProcessedImageDataURL = null; // Store the full processed image snapshot for cropper preview
+
+        const pixelSizes = [48, 75, 96];
+
+        // IndexedDB persistence for files
+        let dbPromise = null;
+        function openDB() {
+            if (dbPromise) return dbPromise;
+            dbPromise = new Promise((resolve, reject) => {
+                const req = indexedDB.open('albumCoverDB', 1);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('files')) {
+                        db.createObjectStore('files');
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            return dbPromise;
+        }
+
+        // Key helper for per-size storage
+        function dbKey(type, size = selectedGridSize) {
+            return `${type}_${size}`;
+        }
+
+        async function saveFileToDB(key, file) {
+            try {
+                const db = await openDB();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('files', 'readwrite');
+                    const store = tx.objectStore('files');
+                    const value = { name: file.name, type: file.type, blob: file };
+                    const req = store.put(value, key);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            } catch (e) {
+                console.warn('Failed to save file to IndexedDB', e);
+            }
+        }
+
+        async function loadFileFromDB(key) {
+            try {
+                const db = await openDB();
+                return await new Promise((resolve, reject) => {
+                    const tx = db.transaction('files', 'readonly');
+                    const store = tx.objectStore('files');
+                    const req = store.get(key);
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = () => reject(req.error);
+                });
+            } catch (e) {
+                console.warn('Failed to load file from IndexedDB', e);
+                return null;
+            }
+        }
+
+        // Persist simple state in localStorage
+        function saveSimpleState() {
+            localStorage.setItem('selectedGridSize', String(selectedGridSize));
+            localStorage.setItem('editorSettings', JSON.stringify(editorSettings));
+        }
+
+        function loadSimpleState() {
+            const sizeStr = localStorage.getItem('selectedGridSize');
+            if (sizeStr) {
+                const s = parseInt(sizeStr);
+                if ([32,48,75,96].includes(s)) {
+                    selectedGridSize = s;
+                }
+            }
+            const es = localStorage.getItem('editorSettings');
+            if (es) {
+                try {
+                    const parsed = JSON.parse(es);
+                    editorSettings = { ...editorSettings, ...parsed };
+                } catch {}
+            }
+        }
+
+        async function restoreForSize(size) {
+            // PNG
+            const pngEntry = await loadFileFromDB(dbKey('png', size));
+            if (pngEntry && pngEntry.blob) {
+                const restoredPNG = new File([pngEntry.blob], pngEntry.name || 'image.png', { type: pngEntry.type || 'image/png' });
+                pngFile = restoredPNG;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        rawUploadedImage = img;
+                        fullOriginalImage = img; // Store full original uncropped image
+                        pngImage = img;
+                        
+                        // Reset cropper state when restoring image
+                        fullProcessedImageDataURL = null;
+                        cropperVisible = false;
+                        cropperManuallyHidden = false; // Reset flag when restoring
+                        cropInitialized = false;
+                        const previewImg = document.getElementById('png-preview-img');
+                        if (previewImg) {
+                            previewImg.removeAttribute('data-cropper-fixed');
+                        }
+                        document.getElementById('png-preview').style.display = 'none';
+                        document.getElementById('crop-canvas').style.display = 'none';
+                        document.getElementById('show-cropper-btn').style.display = 'block';
+                        document.getElementById('hide-cropper-btn').style.display = 'none';
+                        
+                        // Show original image in editor
+                        const originalImg = document.getElementById('original-image-canvas');
+                        const placeholder = document.getElementById('original-image-placeholder');
+                        originalImg.src = ev.target.result;
+                        originalImg.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        // Auto-tune per restored image
+                        autoTuneSettingsFromImage(img);
+                        document.getElementById('contrast-slider').value = String(editorSettings.contrast);
+                        document.getElementById('brightness-slider').value = String(editorSettings.brightness);
+                        document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
+                        document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                        // Don't set preview image here - it will be set to processed version after processImage() runs
+                        // document.getElementById('png-preview-img').src = ev.target.result;
+                        // Show crop buttons when image is restored
+                        document.getElementById('crop-buttons').style.display = 'block';
+                        // Don't show preview automatically - only show when "Show Cropper" is clicked
+                        // document.getElementById('png-preview').style.display = 'block';
+                        document.getElementById('png-upload-area').classList.add('has-file');
+                        document.getElementById('png-upload-text').textContent = restoredPNG.name;
+                        checkFilesReady();
+                        if (currentMesh) applyColorsToMesh();
+                        processImage();
+                        // Automatically show cropper after image is processed (with small delay to ensure processed canvas is ready)
+                        // Only auto-show if user hasn't manually hidden it
+                        if (!cropperManuallyHidden) {
+                            setTimeout(() => {
+                                showCropper();
+                            }, 100);
+                        }
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(restoredPNG);
+            } else {
+                // Clear preview if no PNG for this size
+                document.getElementById('png-preview').style.display = 'none';
+                document.getElementById('crop-buttons').style.display = 'none';
+                document.getElementById('png-upload-area').classList.remove('has-file');
+                document.getElementById('png-upload-text').textContent = 'Choose image file...';
+                pngFile = null;
+            }
+
+            // STL - Try to restore from IndexedDB first, then fall back to server
+            const stlEntry = await loadFileFromDB(dbKey('stl', size));
+            if (stlEntry && stlEntry.blob) {
+                const restoredSTL = new File([stlEntry.blob], stlEntry.name || `${size}x${size}_grid.stl`, { type: stlEntry.type || 'application/octet-stream' });
+                stlFile = restoredSTL;
+                document.getElementById('stl-upload-area').classList.add('has-file');
+                document.getElementById('stl-upload-text').textContent = `${size}×${size} grid loaded`;
+                document.getElementById('stl-upload-subtext').textContent = `${size}×${size} cube grid`;
+                loadSTL(restoredSTL);
+                checkFilesReady();
+                console.log(`✅ Restored STL for ${size}×${size} grid from cache`);
+            } else {
+                // No STL in IndexedDB, load from server
+                await loadSTLFromServer(size);
+            }
+            
+            checkFilesReady();
+        }
+
+        // Helper function to create processed image at a specific size
+        function createProcessedImageAtSize(image, targetSize, callback) {
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = targetSize;
+            finalCanvas.height = targetSize;
+            const finalCtx = finalCanvas.getContext('2d');
+
+            // Draw and process
+            finalCtx.drawImage(image, 0, 0, targetSize, targetSize);
+            const imageData = finalCtx.getImageData(0, 0, targetSize, targetSize);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                const bp = editorSettings.blackPoint ?? 0;
+                const wp = editorSettings.whitePoint ?? 255;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                const base = [0,85,170,255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k*(base.length-1))/(n-1));
+                    indices.push(base[idx]);
+                }
+                let finalColor = indices[indices.length-1];
+                for (let t = 0; t < indices.length-1; t++) {
+                    const mid = (indices[t] + indices[t+1]) / 2;
+                    if (gray < mid) { finalColor = indices[t]; break; }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+
+            finalCtx.putImageData(imageData, 0, 0);
+
+            // Convert to image
+            finalCanvas.toBlob((blob) => {
+                const processedFile = new File([blob], 'processed.png', { type: 'image/png' });
+                const img = new Image();
+                img.onload = () => {
+                    if (callback) callback(processedFile, img);
+                };
+                img.src = URL.createObjectURL(blob);
+            });
+        }
+
+        // Handle grid size selection
+        async function selectGridSize(size) {
+            selectedGridSize = size;
+            saveSimpleState();
+            
+            // Update button states
+            document.querySelectorAll('.grid-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.size) === size) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Update text to show selected grid size
+            document.getElementById('png-upload-subtext').textContent = `Will be resized to ${size}×${size} pixels`;
+            document.getElementById('stl-upload-subtext').textContent = `${size}×${size} cube grid`;
+            
+            console.log(`Grid size selected: ${size}×${size}`);
+
+            // Clear current STL to allow restore
+            stlFile = null;
+
+            // If there's a current image loaded, reprocess it with the new size
+            // Otherwise, restore saved files for this size
+            if (rawUploadedImage) {
+                // Reprocess current image with new grid size
+                processImage(); // Update preview canvas
+                // Also create new processed image for 3D view
+                createProcessedImageAtSize(rawUploadedImage, size, (file, img) => {
+                    pngFile = file;
+                    pngImage = img;
+                    // Save to IndexedDB for this size
+                    saveFileToDB(dbKey('png', size), file);
+                    // Apply colors to 3D mesh if loaded
+                    if (currentMesh) {
+                        applyColorsToMesh();
+                    }
+                });
+                
+                // Load STL for this size (from IndexedDB cache or server)
+                const stlEntry = await loadFileFromDB(dbKey('stl', size));
+                if (stlEntry && stlEntry.blob) {
+                    const restoredSTL = new File([stlEntry.blob], stlEntry.name || `${size}x${size}_grid.stl`, { type: stlEntry.type || 'application/octet-stream' });
+                    stlFile = restoredSTL;
+                    document.getElementById('stl-upload-area').classList.add('has-file');
+                    document.getElementById('stl-upload-text').textContent = `${size}×${size} grid loaded`;
+                    document.getElementById('stl-upload-subtext').textContent = `${size}×${size} cube grid`;
+                    loadSTL(restoredSTL);
+                    checkFilesReady();
+                    console.log(`✅ Restored STL for ${size}×${size} grid from cache`);
+                } else {
+                    // No cached STL, load from server
+                    await loadSTLFromServer(size);
+                }
+            } else if (pngFile) {
+                // If we have a processed PNG file, reload the original if possible
+                // Otherwise, just restore saved files for this size
+                await restoreForSize(size);
+            } else {
+                // No current image, restore saved PNG for this size
+                await restoreForSize(size);
+            }
+        }
+
+        // Photo Editor Functions
+        function showEditorPanel() {
+            document.getElementById('editor-panel').style.display = 'block';
+            document.getElementById('canvas-container').style.display = 'none';
+            // Remove Cancel and Apply buttons when showing editor panel
+            removeCancelAndApplyButtons();
+            if (rawUploadedImage) {
+                // If we have painted image data, just redraw it instead of reprocessing
+                if (processedImageData && processedImageData.width === selectedGridSize && processedImageData.height === selectedGridSize) {
+                    redrawProcessedCanvas();
+                } else {
+                    // No painted data, process from scratch
+                    processImage();
+                }
+            }
+        }
+
+        function show3DView() {
+            document.getElementById('editor-panel').style.display = 'none';
+            document.getElementById('canvas-container').style.display = 'block';
+            // Ensure Three.js canvas resizes correctly after becoming visible (wait a frame)
+            requestAnimationFrame(() => {
+                try {
+                    const container = document.getElementById('canvas-container');
+                    let w = container.clientWidth || container.offsetWidth;
+                    let h = container.clientHeight || container.offsetHeight;
+                    if (!w || !h) {
+                        w = window.innerWidth;
+                        h = window.innerHeight;
+                    }
+                    // Ensure renderer DOM is attached
+                    if (renderer && container && renderer.domElement && renderer.domElement.parentNode !== container) {
+                        container.appendChild(renderer.domElement);
+                    }
+                    if (renderer && camera) {
+                        renderer.setSize(w, h, true);
+                        camera.aspect = w / h;
+                        camera.updateProjectionMatrix();
+                    }
+                    // Fit camera to current mesh if available
+                    if (currentMesh) {
+                        const box = new THREE.Box3().setFromObject(currentMesh);
+                        const size = box.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z) || 100;
+                        camera.position.set(maxDim, maxDim, maxDim);
+                        controls.target.set(0, 0, 0);
+                        controls.update();
+                    }
+                    // Render once immediately after resize
+                    if (renderer && scene && camera) {
+                        renderer.render(scene, camera);
+                    }
+                } catch (e) {
+                    console.warn('Resize after showing 3D view failed:', e);
+                }
+            });
+        }
+
+        function processImage() {
+            if (!rawUploadedImage) return;
+
+            const processedCanvas = document.getElementById('processed-canvas');
+            const processedCtx = processedCanvas.getContext('2d');
+
+            // Set canvas sizes - ensure it fits within available space without scrolling
+            const container = document.getElementById('editor-panel');
+            const containerWidth = Math.max(200, container.clientWidth - 48); // padding
+            // Reserve space for header (~60px), label (~30px), buttons (~70px), and padding (~40px)
+            const reservedHeight = 250;
+            const availableHeight = window.innerHeight - reservedHeight;
+            // Cap at 400px max to ensure it fits comfortably without scrolling
+            const maxSize = 400;
+            const side = Math.min(containerWidth, availableHeight, maxSize);
+            // Set both canvas dimensions and CSS style for display
+            processedCanvas.width = side;
+            processedCanvas.height = side;
+            processedCanvas.style.width = side + 'px';
+            processedCanvas.style.height = side + 'px';
+            processedCanvas.style.maxWidth = side + 'px';
+
+            // Process: Convert to grayscale with luminosity + posterize + pixelate
+            const pixelSize = selectedGridSize;
+            
+            // Create temp canvas at target pixel size
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = pixelSize;
+            tempCanvas.height = pixelSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw image at small size (pixelation effect)
+            tempCtx.drawImage(rawUploadedImage, 0, 0, pixelSize, pixelSize);
+            
+            // Get image data
+            const imageData = tempCtx.getImageData(0, 0, pixelSize, pixelSize);
+            const data = imageData.data;
+
+            // Process each pixel: grayscale + percentile stretch + contrast/brightness + N-tone posterize
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert to grayscale using luminosity method (perceputal brightness)
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                // Percentile stretch using black/white points
+                const bp = editorSettings.blackPoint ?? 0;
+                const wp = editorSettings.whitePoint ?? 255;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                // Apply contrast and brightness
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                // Posterize to N tones based on brightness using base palette [0,85,170,255]
+                const base = [0,85,170,255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k*(base.length-1))/(n-1));
+                    indices.push(base[idx]);
+                }
+                // thresholds midpoints
+                let finalColor = indices[indices.length-1];
+                for (let t = 0; t < indices.length-1; t++) {
+                    const mid = (indices[t] + indices[t+1]) / 2;
+                    if (gray < mid) { finalColor = indices[t]; break; }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+
+            tempCtx.putImageData(imageData, 0, 0);
+
+            // Store the processed image data for pixel editing (at pixel size, not display size)
+            const imageDataCopy = tempCtx.getImageData(0, 0, pixelSize, pixelSize);
+            processedImageData = imageDataCopy;
+            
+            // Store a deep copy as the original (for reset functionality)
+            originalProcessedImageData = new ImageData(
+                new Uint8ClampedArray(imageDataCopy.data),
+                imageDataCopy.width,
+                imageDataCopy.height
+            );
+
+            // Draw pixelated result to processed canvas (scaled up)
+            processedCtx.imageSmoothingEnabled = false;
+            processedCtx.drawImage(tempCanvas, 0, 0, processedCanvas.width, processedCanvas.height);
+            
+            // Create a preview version at preview size for general use
+            const previewCanvas = document.createElement('canvas');
+            const previewMaxSize = 400;
+            previewCanvas.width = previewMaxSize;
+            previewCanvas.height = previewMaxSize;
+            const previewCtx = previewCanvas.getContext('2d');
+            previewCtx.imageSmoothingEnabled = false;
+            previewCtx.drawImage(tempCanvas, 0, 0, previewMaxSize, previewMaxSize);
+            const previewDataURL = previewCanvas.toDataURL();
+            
+            // IMPORTANT: Only store the full processed preview if cropper is NOT visible
+            // Once cropper is visible, this snapshot is FROZEN and must never change
+            // This is exclusively for the cropper preview - completely separate from editor updates
+            if (!cropperVisible) {
+                // Only update when cropper is not visible - this way it captures the full image before cropping
+                fullProcessedImageDataURL = previewDataURL;
+            }
+            // If cropper IS visible, DO NOT overwrite fullProcessedImageDataURL - keep it frozen
+            
+            // Update preview image to show same processed result (scaled up to match preview size)
+            // BUT NEVER update if cropper is visible/fixed - the cropper preview must stay unchanged
+            // IMPORTANT: Check cropperVisible FIRST to prevent any updates while cropping
+            const previewImg = document.getElementById('png-preview-img');
+            const isCropperFixed = previewImg && previewImg.getAttribute('data-cropper-fixed') === 'true';
+            // Only update if cropper is NOT visible AND preview is NOT fixed
+            if (previewImg && rawUploadedImage && !cropperVisible && !isCropperFixed) {
+                previewImg.src = previewDataURL;
+            }
+            // If cropper is visible, NEVER update the preview - it must stay frozen
+            
+            // Re-attach paint handlers after processing
+            setTimeout(() => {
+                setupPaintHandlers();
+            }, 100);
+        }
+
+        function applyPhotoEdits() {
+            // FUNCTION DISABLED - DO NOTHING
+            return;
+            // Create the processed image at the selected pixel size
+            const pixelSize = selectedGridSize; // Use selectedGridSize
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = pixelSize;
+            finalCanvas.height = pixelSize;
+            const finalCtx = finalCanvas.getContext('2d');
+
+            // Use painted image data if available, otherwise process from scratch
+            let imageData;
+            if (processedImageData && processedImageData.width === pixelSize && processedImageData.height === pixelSize) {
+                // Use the painted image data (preserve paintings)
+                imageData = new ImageData(
+                    new Uint8ClampedArray(processedImageData.data),
+                    processedImageData.width,
+                    processedImageData.height
+                );
+            } else {
+                // Draw and process from original
+                finalCtx.drawImage(rawUploadedImage, 0, 0, pixelSize, pixelSize);
+                imageData = finalCtx.getImageData(0, 0, pixelSize, pixelSize);
+                const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                const bp = editorSettings.blackPoint ?? 0;
+                const wp = editorSettings.whitePoint ?? 255;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                const base = [0,85,170,255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k*(base.length-1))/(n-1));
+                    indices.push(base[idx]);
+                }
+                let finalColor = indices[indices.length-1];
+                for (let t = 0; t < indices.length-1; t++) {
+                    const mid = (indices[t] + indices[t+1]) / 2;
+                    if (gray < mid) { finalColor = indices[t]; break; }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+            
+                // Store for future editing
+                processedImageData = imageData;
+                
+                // Store a deep copy as the original (for reset functionality)
+                originalProcessedImageData = new ImageData(
+                    new Uint8ClampedArray(imageData.data),
+                    imageData.width,
+                    imageData.height
+                );
+            }
+
+            finalCtx.putImageData(imageData, 0, 0);
+
+            // Convert to image and use as PNG
+            finalCanvas.toBlob((blob) => {
+                const processedFile = new File([blob], 'processed.png', { type: 'image/png' });
+                pngFile = processedFile;
+
+                const img = new Image();
+                img.onload = () => {
+                    pngImage = img;
+                    // Don't set preview here - it's already set to processed version in processImage()
+                    // document.getElementById('png-preview-img').src = img.src;
+                    // Show crop buttons when image is processed
+                    document.getElementById('crop-buttons').style.display = 'block';
+                    // Don't show preview automatically - only show when "Show Cropper" is clicked
+                    // document.getElementById('png-preview').style.display = 'block';
+                    document.getElementById('png-upload-area').classList.add('has-file');
+                    document.getElementById('png-upload-text').textContent = 'Processed image';
+
+                    // Apply colors to 3D mesh if STL is loaded
+                    if (currentMesh) {
+                        applyColorsToMesh();
+                    }
+
+                    checkFilesReady();
+                    // Automatically switch to 3D view after applying
+                    show3DView();
+                };
+                img.src = URL.createObjectURL(blob);
+
+                // Persist processed PNG for current grid size
+                saveFileToDB(dbKey('png'), processedFile);
+            }, 'image/png');
+        }
+
+        // Crop Functions - Simple cropper with blue dotted line
+        function showCropper() {
+            console.log('Show cropper clicked');
+            
+            const previewImg = document.getElementById('png-preview-img');
+            const cropCanvas = document.getElementById('crop-canvas');
+            const container = document.getElementById('crop-container');
+            
+            if (!previewImg || !cropCanvas || !container) {
+                console.error('Cropper elements not found');
+                return;
+            }
+            
+            // User is manually showing the cropper, so clear the manually hidden flag
+            cropperManuallyHidden = false;
+            
+            // Make sure preview image is visible
+            document.getElementById('png-preview').style.display = 'block';
+            
+            // Always create a fresh snapshot from the current processed canvas when showing cropper
+            // This ensures the cropper always shows the current processed image
+            const processedCanvas = document.getElementById('processed-canvas');
+            if (processedCanvas && processedCanvas.width > 0) {
+                // Create a snapshot from the current processed canvas
+                const snapshotCanvas = document.createElement('canvas');
+                snapshotCanvas.width = 400;
+                snapshotCanvas.height = 400;
+                const snapshotCtx = snapshotCanvas.getContext('2d');
+                snapshotCtx.imageSmoothingEnabled = false;
+                
+                // Draw the current processed canvas to create the snapshot
+                // Handle zoom/pan by redrawing at 1:1 scale
+                if (processedImageData && processedImageData.width === selectedGridSize) {
+                    // Draw directly from processedImageData at correct size
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = selectedGridSize;
+                    tempCanvas.height = selectedGridSize;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.putImageData(processedImageData, 0, 0);
+                    snapshotCtx.drawImage(tempCanvas, 0, 0, 400, 400);
+                } else {
+                    // Fallback: draw from processed canvas
+                    snapshotCtx.drawImage(processedCanvas, 0, 0, 400, 400);
+                }
+                
+                fullProcessedImageDataURL = snapshotCanvas.toDataURL();
+                previewImg.src = fullProcessedImageDataURL;
+                previewImg.setAttribute('data-cropper-fixed', 'true');
+            } else if (fullProcessedImageDataURL) {
+                // Use existing snapshot if canvas not ready
+                previewImg.src = fullProcessedImageDataURL;
+                previewImg.setAttribute('data-cropper-fixed', 'true');
+            } else {
+                // Fallback: create snapshot from processed canvas (only if no snapshot exists)
+                // But make sure to store it so it never changes again
+                const processedCanvas = document.getElementById('processed-canvas');
+                if (processedCanvas && processedCanvas.width > 0) {
+                    const previewCanvas = document.createElement('canvas');
+                    const previewMaxSize = 400;
+                    previewCanvas.width = previewMaxSize;
+                    previewCanvas.height = previewMaxSize;
+                    const previewCtx = previewCanvas.getContext('2d');
+                    previewCtx.imageSmoothingEnabled = false;
+                    previewCtx.drawImage(processedCanvas, 0, 0, previewMaxSize, previewMaxSize);
+                    const snapshotDataURL = previewCanvas.toDataURL();
+                    fullProcessedImageDataURL = snapshotDataURL; // Store as frozen snapshot
+                    previewImg.src = snapshotDataURL;
+                    previewImg.setAttribute('data-cropper-fixed', 'true');
+                } else if (pngImage && pngImage.src) {
+                    // Convert PNG to data URL and store as frozen snapshot
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = 400;
+                    tempCanvas.height = 400;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.imageSmoothingEnabled = false;
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        tempCtx.drawImage(tempImg, 0, 0, 400, 400);
+                        const snapshotDataURL = tempCanvas.toDataURL();
+                        fullProcessedImageDataURL = snapshotDataURL; // Store as frozen snapshot
+                        previewImg.src = snapshotDataURL;
+                        previewImg.setAttribute('data-cropper-fixed', 'true');
+                    };
+                    tempImg.src = pngImage.src;
+                    return; // Exit early, will continue after image loads
+                } else {
+                    alert('Please upload and process an image first');
+                    return;
+                }
+            }
+            
+            // Wait for image to load if needed
+            if (previewImg.complete && previewImg.naturalWidth > 0) {
+                setTimeout(initCropper, 50);
+            } else {
+                previewImg.onload = function() {
+                    setTimeout(initCropper, 50);
+                };
+                // If image is already loading, trigger onload manually
+                if (previewImg.src) {
+                    previewImg.load();
+                }
+            }
+            
+            function initCropper() {
+                // Reset zoom/pan when showing cropper
+                cropperZoom = 1.0;
+                cropperPanX = 0;
+                cropperPanY = 0;
+                updateCropperTransform();
+                
+                // Use FIXED dimensions for cropper - always 400x400px
+                // This ensures the cropper preview never changes size
+                const imgDisplayWidth = 400;
+                const imgDisplayHeight = 400;
+                
+                // Set canvas display size to match fixed image size
+                cropCanvas.style.width = imgDisplayWidth + 'px';
+                cropCanvas.style.height = imgDisplayHeight + 'px';
+                cropCanvas.style.left = '0px';
+                cropCanvas.style.top = '0px';
+                cropCanvas.style.display = 'block';
+                cropCanvas.style.pointerEvents = 'auto';
+                cropCanvas.style.cursor = 'move';
+                cropCanvas.style.zIndex = '10';
+                
+                // Set canvas internal resolution (device pixel ratio for crisp lines)
+                const dpr = window.devicePixelRatio || 1;
+                cropCanvas.width = imgDisplayWidth * dpr;
+                cropCanvas.height = imgDisplayHeight * dpr;
+                
+                // Initialize crop area - ONLY if never initialized before (preserve position forever after first use)
+                if (!cropInitialized) {
+                    // First time - center it, 80% of image size, snapped to grid
+                    const gridSize = selectedGridSize;
+                    const cellSize = imgDisplayWidth / gridSize;
+                    
+                    let initialSize = Math.min(imgDisplayWidth, imgDisplayHeight) * 0.8;
+                    const numCells = Math.round(initialSize / cellSize);
+                    cropSize = Math.max(1, numCells) * cellSize;
+                    
+                    // Precise center calculation with snapping
+                    const centerX = (imgDisplayWidth - cropSize) / 2;
+                    const centerY = (imgDisplayHeight - cropSize) / 2;
+                    const centerCellX = Math.round(centerX / cellSize);
+                    const centerCellY = Math.round(centerY / cellSize);
+                    cropX = centerCellX * cellSize;
+                    cropY = centerCellY * cellSize;
+                    
+                    // Ensure crop box stays within image bounds
+                    cropX = Math.max(0, Math.min(cropX, imgDisplayWidth - cropSize));
+                    cropY = Math.max(0, Math.min(cropY, imgDisplayHeight - cropSize));
+                    
+                    cropInitialized = true; // Mark as initialized - never reset again
+                }
+                // If crop position already exists, keep it exactly where it is (don't reset to center)
+                
+                cropperVisible = true;
+                document.getElementById('show-cropper-btn').style.display = 'none';
+                document.getElementById('hide-cropper-btn').style.display = 'block';
+                // Show the preview image
+                document.getElementById('png-preview').style.display = 'block';
+                
+                drawCropBox();
+            }
+        }
+        
+        function drawCropBox() {
+            if (!cropperVisible) return;
+            
+            const cropCanvas = document.getElementById('crop-canvas');
+            if (!cropCanvas) return;
+            
+            // Use FIXED dimensions - always 400x400px when cropper is visible
+            // This ensures the crop box always matches the fixed preview size
+            const imgDisplayWidth = 400;
+            const imgDisplayHeight = 400;
+            
+            const ctx = cropCanvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            
+            // Clear canvas completely
+            ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            
+            // Reset transform to identity first
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            
+            // Scale to device pixel ratio for crisp rendering
+            ctx.scale(dpr, dpr);
+            
+            // Draw blue dotted square border
+            ctx.strokeStyle = '#2196F3';
+            ctx.lineWidth = 3; // Make it slightly thicker to be more visible
+            ctx.setLineDash([8, 4]); // Dash pattern: 8px dash, 4px gap
+            ctx.lineDashOffset = 0;
+            
+            // Ensure crop coordinates are within bounds
+            const maxX = Math.min(cropX + cropSize, imgDisplayWidth);
+            const maxY = Math.min(cropY + cropSize, imgDisplayHeight);
+            const clampedX = Math.max(0, Math.min(cropX, imgDisplayWidth));
+            const clampedY = Math.max(0, Math.min(cropY, imgDisplayHeight));
+            const clampedSizeX = Math.max(1, maxX - clampedX);
+            const clampedSizeY = Math.max(1, maxY - clampedY);
+            
+            // Draw the rectangle
+            ctx.beginPath();
+            ctx.rect(clampedX, clampedY, clampedSizeX, clampedSizeY);
+            ctx.stroke();
+            
+            // Reset line dash
+            ctx.setLineDash([]);
+            
+            console.log('Drew crop box at:', clampedX, clampedY, clampedSizeX, clampedSizeY);
+        }
+        
+        // Make the canvas interactive
+        document.getElementById('crop-canvas').addEventListener('mousedown', (e) => {
+            if (!cropperVisible) return;
+            
+            const cropCanvas = document.getElementById('crop-canvas');
+            const rect = cropCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // Check if clicking on edge (for resize) or center (for drag)
+            const edgeThreshold = 15;
+            const onLeftEdge = Math.abs(mouseX - cropX) < edgeThreshold;
+            const onRightEdge = Math.abs(mouseX - (cropX + cropSize)) < edgeThreshold;
+            const onTopEdge = Math.abs(mouseY - cropY) < edgeThreshold;
+            const onBottomEdge = Math.abs(mouseY - (cropY + cropSize)) < edgeThreshold;
+            
+            // Check corners first
+            const onTopLeft = onTopEdge && onLeftEdge;
+            const onTopRight = onTopEdge && onRightEdge;
+            const onBottomLeft = onBottomEdge && onLeftEdge;
+            const onBottomRight = onBottomEdge && onRightEdge;
+            
+            if (onTopLeft || onTopRight || onBottomLeft || onBottomRight) {
+                // Resize from corner
+                isResizingCrop = true;
+                if (onTopLeft) resizeEdge = 'topleft';
+                else if (onTopRight) resizeEdge = 'topright';
+                else if (onBottomLeft) resizeEdge = 'bottomleft';
+                else if (onBottomRight) resizeEdge = 'bottomright';
+                cropStartX = cropX;
+                cropStartY = cropY;
+                cropStartSize = cropSize;
+                dragStartX = mouseX;
+                dragStartY = mouseY;
+                cropCanvas.style.cursor = 'nwse-resize';
+            } else if (onLeftEdge || onRightEdge || onTopEdge || onBottomEdge) {
+                // Resize from edge
+                isResizingCrop = true;
+                if (onLeftEdge) resizeEdge = 'left';
+                else if (onRightEdge) resizeEdge = 'right';
+                else if (onTopEdge) resizeEdge = 'top';
+                else if (onBottomEdge) resizeEdge = 'bottom';
+                cropStartX = cropX;
+                cropStartY = cropY;
+                cropStartSize = cropSize;
+                dragStartX = mouseX;
+                dragStartY = mouseY;
+                cropCanvas.style.cursor = onLeftEdge || onRightEdge ? 'ew-resize' : 'ns-resize';
+            } else if (isPanningCropper) {
+                // Start panning
+                panStartX = mouseX;
+                panStartY = mouseY;
+            } else if (mouseX >= cropX && mouseX <= cropX + cropSize &&
+                      mouseY >= cropY && mouseY <= cropY + cropSize) {
+                // Drag from center (only if not panning)
+                isDraggingCrop = true;
+                dragStartX = mouseX - cropX * cropperZoom;
+                dragStartY = mouseY - cropY * cropperZoom;
+                cropCanvas.style.cursor = 'move';
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!cropperVisible && !isDraggingCrop && !isResizingCrop && !isPanningCropper) return;
+            
+            const cropCanvas = document.getElementById('crop-canvas');
+            const rect = cropCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            if (isPanningCropper) {
+                // Pan the cropper view
+                const deltaX = mouseX - panStartX;
+                const deltaY = mouseY - panStartY;
+                cropperPanX += deltaX;
+                cropperPanY += deltaY;
+                panStartX = mouseX;
+                panStartY = mouseY;
+                updateCropperTransform();
+            } else if (isDraggingCrop) {
+                // Move crop box - need to convert mouse coordinates to image coordinates
+                // Account for zoom/pan transform
+                const cropCanvas = document.getElementById('crop-canvas');
+                const rect = cropCanvas.getBoundingClientRect();
+                const canvasMouseX = (e.clientX - rect.left) / cropperZoom - cropperPanX / cropperZoom;
+                const canvasMouseY = (e.clientY - rect.top) / cropperZoom - cropperPanY / cropperZoom;
+                
+                let newX = canvasMouseX - dragStartX;
+                let newY = canvasMouseY - dragStartY;
+                
+                // Use FIXED dimensions - always 400x400px when cropper is visible
+                const imgWidth = 400;
+                const imgHeight = 400;
+                
+                newX = Math.max(0, Math.min(newX, imgWidth - cropSize));
+                newY = Math.max(0, Math.min(newY, imgHeight - cropSize));
+                
+                // Snap to pixel grid
+                const gridSize = selectedGridSize;
+                const cellSize = imgWidth / gridSize;
+                
+                // Snap position to grid cell boundaries
+                const cellX = Math.round(newX / cellSize);
+                const cellY = Math.round(newY / cellSize);
+                cropX = cellX * cellSize;
+                cropY = cellY * cellSize;
+                
+                // Ensure it stays within bounds
+                const maxCellX = Math.floor((imgWidth - cropSize) / cellSize);
+                const maxCellY = Math.floor((imgHeight - cropSize) / cellSize);
+                cropX = Math.max(0, Math.min(cropX, maxCellX * cellSize));
+                cropY = Math.max(0, Math.min(cropY, maxCellY * cellSize));
+                
+                // Ensure final bounds check
+                cropX = Math.max(0, Math.min(cropX, imgWidth - cropSize));
+                cropY = Math.max(0, Math.min(cropY, imgHeight - cropSize));
+                
+                // Update the crop box visual position
+                drawCropBox();
+                
+                // Update editor section in real-time as you drag (like the reference)
+                applyCropFromBox(true);
+            } else if (isResizingCrop) {
+                // Resize crop box (keep square) based on which edge/corner
+                // Use FIXED dimensions - always 400x400px when cropper is visible
+                const imgWidth = 400;
+                const imgHeight = 400;
+                const gridSize = selectedGridSize;
+                const cellSize = imgWidth / gridSize; // Each cell size in screen pixels
+                
+                // Calculate resize direction - fix inverted logic
+                let deltaX = mouseX - dragStartX;
+                let deltaY = mouseY - dragStartY;
+                
+                // For corners, use the dominant direction
+                let delta = 0;
+                if (resizeEdge.includes('left') && resizeEdge.includes('top')) {
+                    // Top-left: dragging right/down = larger, left/up = smaller
+                    delta = Math.max(-deltaX, -deltaY);
+                } else if (resizeEdge.includes('right') && resizeEdge.includes('top')) {
+                    // Top-right: dragging right/down = larger, left/up = smaller
+                    delta = Math.max(deltaX, -deltaY);
+                } else if (resizeEdge.includes('left') && resizeEdge.includes('bottom')) {
+                    // Bottom-left: dragging right/down = larger, left/up = smaller
+                    delta = Math.max(-deltaX, deltaY);
+                } else if (resizeEdge.includes('right') && resizeEdge.includes('bottom')) {
+                    // Bottom-right: dragging right/down = larger, left/up = smaller
+                    delta = Math.max(deltaX, deltaY);
+                } else if (resizeEdge === 'left') {
+                    // Left edge: dragging right = larger, left = smaller
+                    delta = -deltaX;
+                } else if (resizeEdge === 'right') {
+                    // Right edge: dragging right = larger, left = smaller
+                    delta = deltaX;
+                } else if (resizeEdge === 'top') {
+                    // Top edge: dragging down = larger, up = smaller
+                    delta = -deltaY;
+                } else if (resizeEdge === 'bottom') {
+                    // Bottom edge: dragging down = larger, up = smaller
+                    delta = deltaY;
+                }
+                
+                // Calculate new size (delta > 0 means larger, delta < 0 means smaller)
+                let newSize = cropStartSize + delta;
+                
+                // Constrain size
+                newSize = Math.max(cellSize, Math.min(newSize, imgWidth, imgHeight));
+                
+                // Snap size to grid cells (must be multiple of cellSize) - use precise calculation
+                const numCells = Math.round(newSize / cellSize);
+                newSize = Math.max(1, numCells) * cellSize;
+                
+                // Calculate new position based on which edge is being resized
+                let newX = cropStartX;
+                let newY = cropStartY;
+                
+                if (resizeEdge.includes('left')) {
+                    newX = cropStartX + cropStartSize - newSize;
+                    newX = Math.max(0, Math.min(newX, imgWidth - newSize));
+                }
+                if (resizeEdge.includes('top')) {
+                    newY = cropStartY + cropStartSize - newSize;
+                    newY = Math.max(0, Math.min(newY, imgHeight - newSize));
+                }
+                if (resizeEdge.includes('right')) {
+                    newX = cropStartX;
+                }
+                if (resizeEdge.includes('bottom')) {
+                    newY = cropStartY;
+                }
+                
+                // Snap position to grid with better precision
+                const cellX = Math.round(newX / cellSize);
+                const cellY = Math.round(newY / cellSize);
+                newX = cellX * cellSize;
+                newY = cellY * cellSize;
+                
+                // Adjust size if needed after snapping position - with precise snapping
+                if (resizeEdge.includes('left')) {
+                    const actualX = Math.max(0, Math.min(newX, imgWidth - newSize));
+                    let adjustedSize = cropStartX + cropStartSize - actualX;
+                    const numCells2 = Math.round(adjustedSize / cellSize);
+                    adjustedSize = Math.max(1, numCells2) * cellSize;
+                    const adjustedX = cropStartX + cropStartSize - adjustedSize;
+                    const cellX2 = Math.round(adjustedX / cellSize);
+                    newX = cellX2 * cellSize;
+                    newSize = cropStartX + cropStartSize - newX;
+                    const numCells3 = Math.round(newSize / cellSize);
+                    newSize = Math.max(1, numCells3) * cellSize;
+                    newX = cropStartX + cropStartSize - newSize;
+                    const cellX3 = Math.round(newX / cellSize);
+                    newX = Math.max(0, Math.min(cellX3 * cellSize, imgWidth - newSize));
+                }
+                if (resizeEdge.includes('top')) {
+                    const actualY = Math.max(0, Math.min(newY, imgHeight - newSize));
+                    let adjustedSize = cropStartY + cropStartSize - actualY;
+                    const numCells2 = Math.round(adjustedSize / cellSize);
+                    adjustedSize = Math.max(1, numCells2) * cellSize;
+                    const adjustedY = cropStartY + cropStartSize - adjustedSize;
+                    const cellY2 = Math.round(adjustedY / cellSize);
+                    newY = cellY2 * cellSize;
+                    newSize = cropStartY + cropStartSize - newY;
+                    const numCells3 = Math.round(newSize / cellSize);
+                    newSize = Math.max(1, numCells3) * cellSize;
+                    newY = cropStartY + cropStartSize - newSize;
+                    const cellY3 = Math.round(newY / cellSize);
+                    newY = Math.max(0, Math.min(cellY3 * cellSize, imgHeight - newSize));
+                }
+                
+                // Final constraints with precise snapping
+                newSize = Math.max(cellSize, Math.min(newSize, imgWidth - newX, imgHeight - newY));
+                const finalNumCells = Math.round(newSize / cellSize);
+                newSize = Math.max(1, finalNumCells) * cellSize;
+                
+                // Final position snap
+                const finalCellX = Math.round(newX / cellSize);
+                const finalCellY = Math.round(newY / cellSize);
+                cropX = Math.max(0, Math.min(finalCellX * cellSize, imgWidth - newSize));
+                cropY = Math.max(0, Math.min(finalCellY * cellSize, imgHeight - newSize));
+                cropSize = newSize;
+                
+                // Update the crop box visual position
+                drawCropBox();
+                
+                // Update editor section in real-time as you resize (like the reference)
+                applyCropFromBox(true);
+            } else if (cropperVisible) {
+                // Update cursor when hovering
+                const edgeThreshold = 15;
+                const onLeftEdge = Math.abs(mouseX - cropX) < edgeThreshold;
+                const onRightEdge = Math.abs(mouseX - (cropX + cropSize)) < edgeThreshold;
+                const onTopEdge = Math.abs(mouseY - cropY) < edgeThreshold;
+                const onBottomEdge = Math.abs(mouseY - (cropY + cropSize)) < edgeThreshold;
+                
+                if ((onTopEdge && onLeftEdge) || (onBottomEdge && onRightEdge)) {
+                    cropCanvas.style.cursor = 'nwse-resize';
+                } else if ((onTopEdge && onRightEdge) || (onBottomEdge && onLeftEdge)) {
+                    cropCanvas.style.cursor = 'nesw-resize';
+                } else if (onLeftEdge || onRightEdge) {
+                    cropCanvas.style.cursor = 'ew-resize';
+                } else if (onTopEdge || onBottomEdge) {
+                    cropCanvas.style.cursor = 'ns-resize';
+                } else if (mouseX >= cropX && mouseX <= cropX + cropSize &&
+                          mouseY >= cropY && mouseY <= cropY + cropSize) {
+                    cropCanvas.style.cursor = 'move';
+                } else {
+                    cropCanvas.style.cursor = 'default';
+                }
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isDraggingCrop || isResizingCrop) {
+                // Redraw crop box
+                drawCropBox();
+                // Auto-apply crop when done dragging/resizing to update editor section
+                setTimeout(() => {
+                    applyCropFromBox(true);
+                }, 50);
+            }
+            isDraggingCrop = false;
+            isResizingCrop = false;
+            isPanningCropper = false;
+            resizeEdge = '';
+            const cropCanvas = document.getElementById('crop-canvas');
+            if (cropCanvas) {
+                cropCanvas.style.cursor = isPanningCropper ? 'grab' : 'move';
+            }
+        });
+        
+        // Hide cropper and image preview
+        function hideCropper() {
+            // Just hide the cropper, don't apply any changes
+            cropperVisible = false;
+            cropperManuallyHidden = true; // Mark that user manually hid it
+            isPanningCropper = false;
+            document.getElementById('crop-canvas').style.display = 'none';
+            document.getElementById('show-cropper-btn').style.display = 'block';
+            document.getElementById('hide-cropper-btn').style.display = 'none';
+            // Hide the entire preview section
+            document.getElementById('png-preview').style.display = 'none';
+        }
+        
+        // Cropper zoom/pan functions
+        function cropperZoomIn() {
+            cropperZoom = Math.min(cropperZoom * 1.5, 5.0);
+            updateCropperTransform();
+        }
+        
+        function cropperZoomOut() {
+            cropperZoom = Math.max(cropperZoom / 1.5, 0.5);
+            updateCropperTransform();
+        }
+        
+        function cropperResetView() {
+            cropperZoom = 1.0;
+            cropperPanX = 0;
+            cropperPanY = 0;
+            updateCropperTransform();
+        }
+        
+        function cropperTogglePan() {
+            const btn = document.getElementById('cropper-pan-btn');
+            const cropCanvas = document.getElementById('crop-canvas');
+            if (isPanningCropper) {
+                isPanningCropper = false;
+                btn.style.background = 'white';
+                if (cropCanvas) cropCanvas.style.cursor = 'move';
+            } else {
+                isPanningCropper = true;
+                btn.style.background = '#e0e0e0';
+                if (cropCanvas) cropCanvas.style.cursor = 'grab';
+            }
+        }
+        
+        function updateCropperTransform() {
+            const previewImg = document.getElementById('png-preview-img');
+            if (previewImg) {
+                const transform = `translate(${cropperPanX}px, ${cropperPanY}px) scale(${cropperZoom})`;
+                previewImg.style.transform = transform;
+                
+                // Also update crop canvas to match
+                const cropCanvas = document.getElementById('crop-canvas');
+                if (cropCanvas) {
+                    cropCanvas.style.transform = transform;
+                }
+                
+                // Redraw crop box with new transform
+                drawCropBox();
+            }
+        }
+        
+        function applyCropFromBox(skipVisibilityCheck = false) {
+            // Only proceed if we have the full original image
+            if (!fullOriginalImage) {
+                // If no fullOriginalImage but we have rawUploadedImage, use that
+                if (!rawUploadedImage || (!cropperVisible && !skipVisibilityCheck)) return;
+            } else if (!cropperVisible && !skipVisibilityCheck) {
+                return;
+            }
+            
+            // IMPORTANT: While cropper is visible, we need to use the stored full processed image dimensions
+            // NOT the cropper preview image dimensions (which might change)
+            const previewImg = document.getElementById('png-preview-img');
+            if (!previewImg) return;
+            
+            // Use fullOriginalImage if available, otherwise fall back to rawUploadedImage
+            const sourceImage = fullOriginalImage || rawUploadedImage;
+            
+            // If cropper is visible, use fixed dimensions based on fullProcessedImageDataURL
+            // This prevents any changes to the cropper preview image
+            let imgDisplayWidth, imgDisplayHeight;
+            if (cropperVisible && fullProcessedImageDataURL) {
+                // Use fixed dimensions - preview is always 400px max with aspect ratio 1:1
+                imgDisplayWidth = 400;
+                imgDisplayHeight = 400;
+            } else {
+                // Normal case: get dimensions from preview image
+                const imgRect = previewImg.getBoundingClientRect();
+                if (imgRect.width === 0 || imgRect.height === 0) return;
+                imgDisplayWidth = imgRect.width;
+                imgDisplayHeight = imgRect.height;
+            }
+            
+            // Calculate scale from preview display size to actual image size
+            const scale = sourceImage.width / imgDisplayWidth;
+            
+            // Calculate actual pixel coordinates in the full original image
+            const x = cropX * scale;
+            const y = cropY * scale;
+            const size = cropSize * scale;
+            
+            // Snap to grid cells
+            const gridSize = selectedGridSize;
+            const cellSize = size / gridSize;
+            const snappedSize = Math.floor(size / cellSize) * cellSize;
+            
+            // Ensure we have valid crop dimensions
+            if (snappedSize <= 0 || x < 0 || y < 0 || x + snappedSize > sourceImage.width || y + snappedSize > sourceImage.height) {
+                return;
+            }
+            
+            // Create new cropped image from the full original
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = snappedSize;
+            newCanvas.height = snappedSize;
+            const newCtx = newCanvas.getContext('2d');
+            
+            // Crop from full original image
+            newCtx.drawImage(sourceImage, x, y, snappedSize, snappedSize, 0, 0, snappedSize, snappedSize);
+            
+            // Update the image
+            const img = new Image();
+            img.onload = () => {
+                // Update rawUploadedImage to the cropped version for processing
+                rawUploadedImage = img;
+                
+                // Keep the full original image visible (don't update it)
+                // Only update the processed/preview versions with the cropped image
+                const originalImg = document.getElementById('original-image-canvas');
+                const placeholder = document.getElementById('original-image-placeholder');
+                
+                // Only update if we haven't shown the full original yet
+                if (!fullOriginalImage || originalImg.src === '' || !originalImg.style.display || originalImg.style.display === 'none') {
+                    // Show the full original image
+                    if (fullOriginalImage) {
+                        const editorCanvas = document.getElementById('processed-canvas');
+                        if (editorCanvas && originalImg) {
+                            const canvasSize = editorCanvas.width || 400;
+                            const displayCanvas = document.createElement('canvas');
+                            displayCanvas.width = canvasSize;
+                            displayCanvas.height = canvasSize;
+                            const displayCtx = displayCanvas.getContext('2d');
+                            
+                            // Draw full original image fitting to canvas
+                            const aspect = fullOriginalImage.width / fullOriginalImage.height;
+                            let drawWidth = canvasSize;
+                            let drawHeight = canvasSize;
+                            let offsetX = 0;
+                            let offsetY = 0;
+                            
+                            if (aspect > 1) {
+                                drawHeight = canvasSize / aspect;
+                                offsetY = (canvasSize - drawHeight) / 2;
+                            } else {
+                                drawWidth = canvasSize * aspect;
+                                offsetX = (canvasSize - drawWidth) / 2;
+                            }
+                            
+                            displayCtx.drawImage(fullOriginalImage, offsetX, offsetY, drawWidth, drawHeight);
+                            originalImg.src = displayCanvas.toDataURL();
+                            originalImg.style.display = 'block';
+                            placeholder.style.display = 'none';
+                        } else {
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = fullOriginalImage.width;
+                            tempCanvas.height = fullOriginalImage.height;
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCtx.drawImage(fullOriginalImage, 0, 0);
+                            originalImg.src = tempCanvas.toDataURL();
+                            originalImg.style.display = 'block';
+                            placeholder.style.display = 'none';
+                        }
+                    }
+                }
+                
+                // IMPORTANT: Do NOT update the cropper preview image here!
+                // The cropper preview should always stay showing the FULL processed image at fixed size
+                // Only the editor panel (processed-canvas) will show the cropped/zoomed version
+                
+                // IMPORTANT: Prevent fullProcessedImageDataURL from being overwritten during cropping
+                // Save it temporarily and restore it after processing
+                const savedFullProcessedImageDataURL = fullProcessedImageDataURL;
+                
+                // Reprocess image with cropped version - this will update processed view in editor only
+                processImage();
+                
+                // Restore the frozen cropper preview snapshot - it must NEVER change
+                fullProcessedImageDataURL = savedFullProcessedImageDataURL;
+                // Also update the processed canvas in the left editor
+                const processedCanvas = document.getElementById('processed-canvas');
+                if (processedCanvas) {
+                    const ctx = processedCanvas.getContext('2d');
+                    // Draw the cropped image processed at the selected grid size
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = selectedGridSize;
+                    tempCanvas.height = selectedGridSize;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(img, 0, 0, selectedGridSize, selectedGridSize);
+                    
+                    // Apply same processing as processImage
+                    const imageData = tempCtx.getImageData(0, 0, selectedGridSize, selectedGridSize);
+                    const data = imageData.data;
+                    
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+                        let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                        const bp = editorSettings.blackPoint ?? 0;
+                        const wp = editorSettings.whitePoint ?? 255;
+                        gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                        gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                        gray = gray * editorSettings.brightness;
+                        gray = Math.max(0, Math.min(255, gray));
+
+                        const base = [0,85,170,255];
+                        const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                        const indices = [];
+                        for (let k = 0; k < n; k++) {
+                            const idx = Math.round((k*(base.length-1))/(n-1));
+                            indices.push(base[idx]);
+                        }
+                        let finalColor = indices[indices.length-1];
+                        for (let t = 0; t < indices.length-1; t++) {
+                            const mid = (indices[t] + indices[t+1]) / 2;
+                            if (gray < mid) { finalColor = indices[t]; break; }
+                        }
+
+                        data[i] = finalColor;
+                        data[i + 1] = finalColor;
+                        data[i + 2] = finalColor;
+                    }
+                    
+                    tempCtx.putImageData(imageData, 0, 0);
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(tempCanvas, 0, 0, processedCanvas.width, processedCanvas.height);
+                }
+                // Redraw crop box with new image
+                setTimeout(() => {
+                    if (cropperVisible) {
+                        showCropper(); // Reinitialize cropper
+                    }
+                }, 100);
+            };
+            img.src = newCanvas.toDataURL();
+        }
+
+        // Paint Functions
+        function selectPaintColor(r, g, b, element) {
+            selectedPaintColor = { r, g, b };
+            // Update selected state
+            document.querySelectorAll('.color-swatch').forEach(swatch => {
+                swatch.classList.remove('selected');
+            });
+            element.classList.add('selected');
+            console.log('Selected paint color:', selectedPaintColor);
+        }
+
+        function zoomInProcessed() {
+            const processedCanvas = document.getElementById('processed-canvas');
+            const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+            const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+            const panBtn = document.getElementById('processed-pan-btn');
+            
+            if (zoomMode === 'zoom-in') {
+                // Deactivate zoom in mode
+                zoomMode = null;
+                if (processedCanvas) processedCanvas.style.cursor = 'crosshair';
+                if (zoomInBtn) zoomInBtn.style.background = 'white';
+            } else {
+                // Activate zoom in mode
+                zoomMode = 'zoom-in';
+                isPanningProcessed = false;
+                if (processedCanvas) processedCanvas.style.cursor = 'zoom-in';
+                if (zoomInBtn) zoomInBtn.style.background = '#e0e0e0';
+                if (zoomOutBtn) zoomOutBtn.style.background = 'white';
+                if (panBtn) panBtn.style.background = 'white';
+            }
+        }
+
+        function zoomOutProcessed() {
+            const processedCanvas = document.getElementById('processed-canvas');
+            const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+            const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+            const panBtn = document.getElementById('processed-pan-btn');
+            
+            if (zoomMode === 'zoom-out') {
+                // Deactivate zoom out mode
+                zoomMode = null;
+                if (processedCanvas) processedCanvas.style.cursor = 'crosshair';
+                if (zoomOutBtn) zoomOutBtn.style.background = 'white';
+            } else {
+                // Activate zoom out mode
+                zoomMode = 'zoom-out';
+                isPanningProcessed = false;
+                if (processedCanvas) processedCanvas.style.cursor = 'zoom-out';
+                if (zoomOutBtn) zoomOutBtn.style.background = '#e0e0e0';
+                if (zoomInBtn) zoomInBtn.style.background = 'white';
+                if (panBtn) panBtn.style.background = 'white';
+            }
+        }
+
+        function resetZoomProcessed() {
+            processedZoom = 1.0;
+            processedZoomOffsetX = 0;
+            processedZoomOffsetY = 0;
+            zoomMode = null;
+            isPanningProcessed = false;
+            
+            const processedCanvas = document.getElementById('processed-canvas');
+            const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+            const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+            const panBtn = document.getElementById('processed-pan-btn');
+            
+            if (processedCanvas) processedCanvas.style.cursor = 'crosshair';
+            if (zoomInBtn) zoomInBtn.style.background = 'white';
+            if (zoomOutBtn) zoomOutBtn.style.background = 'white';
+            if (panBtn) panBtn.style.background = 'white';
+            
+            redrawProcessedCanvas();
+        }
+        
+        function togglePanProcessed() {
+            const btn = document.getElementById('processed-pan-btn');
+            const processedCanvas = document.getElementById('processed-canvas');
+            const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+            const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+            
+            if (isPanningProcessed) {
+                isPanningProcessed = false;
+                zoomMode = null;
+                btn.style.background = 'white';
+                if (processedCanvas) processedCanvas.style.cursor = 'crosshair';
+            } else {
+                isPanningProcessed = true;
+                zoomMode = null;
+                btn.style.background = '#e0e0e0';
+                if (processedCanvas) processedCanvas.style.cursor = 'move'; // Use 'move' cursor for panning
+                if (zoomInBtn) zoomInBtn.style.background = 'white';
+                if (zoomOutBtn) zoomOutBtn.style.background = 'white';
+            }
+        }
+        
+        // Function to deactivate all zoom/pan modes
+        function deactivateZoomPanModes() {
+            zoomMode = null;
+            isPanningProcessed = false;
+            
+            const processedCanvas = document.getElementById('processed-canvas');
+            const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+            const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+            const panBtn = document.getElementById('processed-pan-btn');
+            
+            if (processedCanvas) processedCanvas.style.cursor = 'crosshair';
+            if (zoomInBtn) zoomInBtn.style.background = 'white';
+            if (zoomOutBtn) zoomOutBtn.style.background = 'white';
+            if (panBtn) panBtn.style.background = 'white';
+        }
+        
+        function zoomToPoint(x, y, zoomFactor) {
+            const processedCanvas = document.getElementById('processed-canvas');
+            if (!processedCanvas) return;
+            
+            const rect = processedCanvas.getBoundingClientRect();
+            const w = processedCanvas.width;
+            const h = processedCanvas.height;
+            
+            // Convert click position to canvas coordinates (absolute, not relative to center)
+            const canvasX = x - rect.left;
+            const canvasY = y - rect.top;
+            
+            // Calculate the point in image space that corresponds to this canvas click
+            // In redrawProcessedCanvas, transforms are:
+            // 1. translate(w/2, h/2) - center
+            // 2. translate(offsetX, offsetY) - pan
+            // 3. scale(zoom, zoom)
+            // 4. draw at (-w/2, -h/2)
+            // So: canvasX = imageX * zoom + offsetX + w/2
+            // Therefore: imageX = (canvasX - w/2 - offsetX) / zoom
+            const imageX = (canvasX - w/2 - processedZoomOffsetX) / processedZoom;
+            const imageY = (canvasY - h/2 - processedZoomOffsetY) / processedZoom;
+            
+            // Calculate new zoom level
+            // For zoom out, limit to minimum zoom that doesn't show whitespace (image should fill at least the canvas)
+            const minZoom = 1.0; // Don't zoom out past original size
+            const newZoom = zoomMode === 'zoom-in' 
+                ? Math.min(processedZoom * zoomFactor, 10)
+                : Math.max(processedZoom / zoomFactor, minZoom);
+            
+            // Calculate new offset so the clicked image point stays at the same canvas position
+            // After zoom: canvasX = imageX * newZoom + newOffsetX + w/2
+            // So: newOffsetX = canvasX - w/2 - imageX * newZoom
+            const newOffsetX = canvasX - w/2 - imageX * newZoom;
+            const newOffsetY = canvasY - h/2 - imageY * newZoom;
+            
+            // Constrain offsets to prevent showing whitespace
+            constrainPanBounds(newZoom);
+            
+            // Update zoom and offset
+            processedZoom = newZoom;
+            processedZoomOffsetX = newOffsetX;
+            processedZoomOffsetY = newOffsetY;
+            
+            // Apply bounds again after setting
+            constrainPanBounds(processedZoom);
+            
+            redrawProcessedCanvas();
+        }
+        
+        function constrainPanBounds(zoom) {
+            const processedCanvas = document.getElementById('processed-canvas');
+            if (!processedCanvas) return;
+            
+            const w = processedCanvas.width;
+            const h = processedCanvas.height;
+            
+            // Calculate the maximum allowed offset to keep image within bounds
+            // When zoomed, the image is scaled, so we need to prevent panning too far
+            // Image is drawn at (-w/2, -h/2) with size (w, h) before transforms
+            // After scale(zoom), the visible image size becomes w*zoom, h*zoom
+            // We want to constrain so that image edges stay within canvas bounds
+            
+            // Maximum offset should keep the image edges visible
+            // If zoom >= 1, we can pan more freely
+            // If zoom < 1, we should limit panning to keep image centered
+            if (zoom >= 1.0) {
+                // When zoomed in, allow more panning
+                const maxOffset = (w * zoom - w) / 2;
+                processedZoomOffsetX = Math.max(-maxOffset, Math.min(maxOffset, processedZoomOffsetX));
+                processedZoomOffsetY = Math.max(-maxOffset, Math.min(maxOffset, processedZoomOffsetY));
+            } else {
+                // When zoomed out, limit panning to keep image visible
+                // At zoom 1.0, offset should be 0
+                const maxOffset = w * (1 - zoom) / 2;
+                processedZoomOffsetX = Math.max(-maxOffset, Math.min(maxOffset, processedZoomOffsetX));
+                processedZoomOffsetY = Math.max(-maxOffset, Math.min(maxOffset, processedZoomOffsetY));
+            }
+        }
+
+        function redrawProcessedCanvas() {
+            if (!processedImageData) return;
+            
+            const processedCanvas = document.getElementById('processed-canvas');
+            if (!processedCanvas) return;
+            const processedCtx = processedCanvas.getContext('2d');
+            const pixelSize = selectedGridSize;
+            
+            // Create temp canvas at pixel size with current data
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = pixelSize;
+            tempCanvas.height = pixelSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(processedImageData, 0, 0);
+            
+            // Get display size (may be different from canvas internal size)
+            const displayWidth = processedCanvas.width;
+            const displayHeight = processedCanvas.height;
+            
+            // Clear and redraw with zoom
+            processedCtx.clearRect(0, 0, displayWidth, displayHeight);
+            
+            if (processedZoom === 1.0 && processedZoomOffsetX === 0 && processedZoomOffsetY === 0) {
+                // No zoom, just draw normally
+                processedCtx.imageSmoothingEnabled = false;
+                processedCtx.drawImage(tempCanvas, 0, 0, displayWidth, displayHeight);
+            } else {
+                // Draw with zoom and offset
+                // The image is drawn centered, then scaled and translated
+                processedCtx.save();
+                // Translate to center, then apply offset, then scale
+                processedCtx.translate(displayWidth / 2, displayHeight / 2);
+                processedCtx.translate(processedZoomOffsetX, processedZoomOffsetY);
+                processedCtx.scale(processedZoom, processedZoom);
+                processedCtx.imageSmoothingEnabled = false;
+                // Draw image centered at origin (before transforms)
+                processedCtx.drawImage(tempCanvas, -displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
+                processedCtx.restore();
+            }
+        }
+
+        // Paint pixel function with brush size support
+        function paintPixelAt(clickX, clickY, processedCanvas) {
+            if (!processedImageData) return false;
+            
+            const pixelSize = selectedGridSize;
+            
+            // Convert to pixel coordinates
+            const pixelX = Math.floor((clickX / processedCanvas.width) * pixelSize);
+            const pixelY = Math.floor((clickY / processedCanvas.height) * pixelSize);
+            
+            // Paint a brush area based on brush size
+            // Brush size N paints an NxN square (N pixels wide, N pixels tall)
+            // Size 1 = 1x1 (1 pixel), Size 2 = 2x2 (4 pixels), Size 3 = 3x3 (9 pixels), etc.
+            let painted = false;
+            
+            // Calculate the start position (top-left corner of the square)
+            // Center the brush on the click position
+            const startX = pixelX - Math.floor(brushSize / 2);
+            const startY = pixelY - Math.floor(brushSize / 2);
+            
+            // Paint all pixels in the NxN square
+            for (let dy = 0; dy < brushSize; dy++) {
+                for (let dx = 0; dx < brushSize; dx++) {
+                    const x = startX + dx;
+                    const y = startY + dy;
+                    
+                    // Ensure within bounds
+                    if (x >= 0 && x < pixelSize && y >= 0 && y < pixelSize) {
+                        // Update pixel color in image data
+                        const index = (y * pixelSize + x) * 4;
+                        processedImageData.data[index] = selectedPaintColor.r;     // R
+                        processedImageData.data[index + 1] = selectedPaintColor.g; // G
+                        processedImageData.data[index + 2] = selectedPaintColor.b; // B
+                        processedImageData.data[index + 3] = 255;                  // A
+                        painted = true;
+                    }
+                }
+            }
+            
+            return painted;
+        }
+
+        // Add click and drag handlers to processed canvas for pixel painting
+        let isPainting = false;
+        
+        // Set up paint event listeners (called after DOM loads and when canvas is recreated)
+        function setupPaintHandlers() {
+            const processedCanvas = document.getElementById('processed-canvas');
+            if (!processedCanvas) return;
+            
+            // Use a flag to prevent duplicate listeners
+            if (processedCanvas.dataset.paintHandlersSetup === 'true') return;
+            processedCanvas.dataset.paintHandlersSetup = 'true';
+            
+            let isDraggingPan = false;
+            
+            processedCanvas.addEventListener('mousedown', (e) => {
+                if (zoomMode === 'zoom-in') {
+                    // Zoom in to the clicked point
+                    zoomToPoint(e.clientX, e.clientY, 1.3);
+                } else if (zoomMode === 'zoom-out') {
+                    // Zoom out from the clicked point
+                    zoomToPoint(e.clientX, e.clientY, 1.3);
+                } else if (isPanningProcessed) {
+                    // Start panning - store the initial mouse position and current offset
+                    isDraggingPan = true;
+                    processedPanStartX = e.clientX;
+                    processedPanStartY = e.clientY;
+                    const startOffsetX = processedZoomOffsetX;
+                    const startOffsetY = processedZoomOffsetY;
+                    
+                    // Store start offsets in the event listener closure
+                    processedCanvas.dataset.panStartOffsetX = startOffsetX;
+                    processedCanvas.dataset.panStartOffsetY = startOffsetY;
+                } else if (processedImageData && !isPanningProcessed) {
+                    // Start painting (only if not in pan mode)
+                    // Save state to undo stack before starting to paint
+                    if (!isPainting) {
+                        savePaintState();
+                    }
+                    isPainting = true;
+                    const rect = processedCanvas.getBoundingClientRect();
+                    
+                    // Calculate click position in image space accounting for zoom and offset
+                    // The image is drawn with transforms: translate(center) -> translate(offset) -> scale(zoom)
+                    // So to reverse: get canvas coords, subtract center, subtract offset, divide by zoom
+                    const canvasX = e.clientX - rect.left;
+                    const canvasY = e.clientY - rect.top;
+                    const w = processedCanvas.width;
+                    const h = processedCanvas.height;
+                    
+                    // Convert to coordinates relative to center
+                    const centerRelativeX = canvasX - w / 2;
+                    const centerRelativeY = canvasY - h / 2;
+                    
+                    // Apply inverse transform: subtract offset, then divide by zoom
+                    const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
+                    const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
+                    
+                    // Convert to coordinates where image is drawn at (-w/2, -h/2) with size (w, h)
+                    // So add w/2 and h/2 to get coordinates from 0 to w/h
+                    const normalizedX = imageSpaceX + w / 2;
+                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
+                        redrawProcessedCanvas();
+                    }
+                }
+            });
+        
+            processedCanvas.addEventListener('mousemove', (e) => {
+                if (isPanningProcessed && isDraggingPan) {
+                    // Pan the view - calculate delta from start position
+                    const deltaX = e.clientX - processedPanStartX;
+                    const deltaY = e.clientY - processedPanStartY;
+                    const startOffsetX = parseFloat(processedCanvas.dataset.panStartOffsetX || 0);
+                    const startOffsetY = parseFloat(processedCanvas.dataset.panStartOffsetY || 0);
+                    
+                    // Update offset based on drag delta
+                    processedZoomOffsetX = startOffsetX + deltaX;
+                    processedZoomOffsetY = startOffsetY + deltaY;
+                    
+                    // Constrain to bounds
+                    constrainPanBounds(processedZoom);
+                    
+                    redrawProcessedCanvas();
+                } else if (isPainting && processedImageData && !isPanningProcessed) {
+                    // Continue painting (only if not in pan mode)
+                    const rect = processedCanvas.getBoundingClientRect();
+                    
+                    // Calculate position in image space accounting for zoom and offset
+                    const canvasX = e.clientX - rect.left;
+                    const canvasY = e.clientY - rect.top;
+                    const w = processedCanvas.width;
+                    const h = processedCanvas.height;
+                    
+                    // Convert to coordinates relative to center
+                    const centerRelativeX = canvasX - w / 2;
+                    const centerRelativeY = canvasY - h / 2;
+                    
+                    // Apply inverse transform: subtract offset, then divide by zoom
+                    const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
+                    const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
+                    
+                    // Convert to coordinates where image is drawn at (-w/2, -h/2) with size (w, h)
+                    const normalizedX = imageSpaceX + w / 2;
+                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
+                        redrawProcessedCanvas();
+                    }
+                }
+            });
+            
+            processedCanvas.addEventListener('mouseup', () => {
+                if (isPainting) {
+                    // Paint stroke finished - update undo/redo buttons
+                    updateUndoRedoButtons();
+                }
+                isPainting = false;
+                isDraggingPan = false;
+            });
+            
+            processedCanvas.addEventListener('mouseleave', () => {
+                if (isPainting) {
+                    // Paint stroke finished - update undo/redo buttons
+                    updateUndoRedoButtons();
+                }
+                isPainting = false;
+                isDraggingPan = false;
+            });
+        }
+        
+        // Call setup when page loads
+        // Remove Cancel and Apply buttons if they exist - AGGRESSIVE REMOVAL
+        function removeCancelAndApplyButtons() {
+            // Remove editor-actions container completely
+            const editorActions = document.querySelectorAll('.editor-actions');
+            if (editorActions.length > 0) {
+                console.log('Found', editorActions.length, 'editor-actions containers, removing...');
+                editorActions.forEach(el => {
+                    el.remove();
+                    el.style.display = 'none';
+                    el.style.visibility = 'hidden';
+                });
+            }
+            
+            // Remove any buttons with Cancel text (but keep View in 3D button)
+            const buttons = document.querySelectorAll('button');
+            let removedCount = 0;
+            buttons.forEach(btn => {
+                const text = btn.textContent.trim();
+                const onclick = btn.getAttribute('onclick') || '';
+                const parent = btn.parentElement;
+                
+                // Remove Cancel button (but NOT the View in 3D button which is in panel-header)
+                if (text === 'Cancel' && onclick.includes('show3DView')) {
+                    console.log('Removing Cancel button');
+                    btn.remove();
+                    btn.style.display = 'none';
+                    removedCount++;
+                }
+                
+                // Remove Apply & Use This Image button
+                if (text.includes('Apply') && text.includes('Use This Image')) {
+                    console.log('Removing Apply & Use This Image button');
+                    btn.remove();
+                    btn.style.display = 'none';
+                    removedCount++;
+                }
+                
+                // Remove any button that calls applyPhotoEdits (except if it's the View in 3D button)
+                if (onclick.includes('applyPhotoEdits') && !btn.classList.contains('viewer-btn')) {
+                    console.log('Removing applyPhotoEdits button');
+                    btn.remove();
+                    btn.style.display = 'none';
+                    removedCount++;
+                }
+                
+                // Also check parent - if it's editor-actions, remove the whole container
+                if (parent && parent.classList.contains('editor-actions')) {
+                    console.log('Removing editor-actions parent container');
+                    parent.remove();
+                    parent.style.display = 'none';
+                }
+            });
+            
+            // Double-check: find all elements with editor-actions class and remove them
+            document.querySelectorAll('.editor-actions').forEach(el => {
+                console.log('Force removing editor-actions element');
+                el.remove();
+            });
+            
+            if (removedCount > 0) {
+                console.log('Removed', removedCount, 'buttons');
+            }
+        }
+        
+        // Run immediately and also on load
+        removeCancelAndApplyButtons();
+        document.addEventListener('DOMContentLoaded', removeCancelAndApplyButtons);
+        
+        // Use MutationObserver to catch buttons added dynamically - AGGRESSIVE
+        const observer = new MutationObserver((mutations) => {
+            removeCancelAndApplyButtons();
+            // Also directly hide any editor-actions that appear
+            document.querySelectorAll('.editor-actions').forEach(el => {
+                el.style.display = 'none';
+                el.style.visibility = 'hidden';
+                el.style.opacity = '0';
+                el.style.height = '0';
+                el.remove();
+            });
+        });
+        
+        // Start observing when DOM is ready
+        if (document.body) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['style', 'class']
+                });
+            });
+        }
+        
+        // Also run removal continuously for first 10 seconds
+        let continuousCheckCount = 0;
+        const continuousInterval = setInterval(() => {
+            removeCancelAndApplyButtons();
+            continuousCheckCount++;
+            if (continuousCheckCount > 100) { // 10 seconds
+                clearInterval(continuousInterval);
+            }
+        }, 100);
+        
+        window.addEventListener('load', () => {
+            removeCancelAndApplyButtons();
+            // Run removal function every 100ms for first 5 seconds to catch any late-loading buttons
+            let checkCount = 0;
+            const intervalId = setInterval(() => {
+                removeCancelAndApplyButtons();
+                checkCount++;
+                if (checkCount > 50) { // Stop after 5 seconds (50 * 100ms)
+                    clearInterval(intervalId);
+                }
+            }, 100);
+            setupPaintHandlers();
+            
+            // Deactivate zoom/pan modes when clicking outside the canvas or buttons
+            document.addEventListener('click', (e) => {
+                const processedCanvas = document.getElementById('processed-canvas');
+                const zoomInBtn = document.querySelector('[onclick="zoomInProcessed()"]');
+                const zoomOutBtn = document.querySelector('[onclick="zoomOutProcessed()"]');
+                const panBtn = document.getElementById('processed-pan-btn');
+                const resetBtn = document.querySelector('[onclick="resetZoomProcessed()"]');
+                
+                // Check if click is outside canvas and outside all zoom/pan buttons
+                const isClickOnCanvas = processedCanvas && processedCanvas.contains(e.target);
+                const isClickOnZoomIn = zoomInBtn && (zoomInBtn.contains(e.target) || zoomInBtn === e.target);
+                const isClickOnZoomOut = zoomOutBtn && (zoomOutBtn.contains(e.target) || zoomOutBtn === e.target);
+                const isClickOnPan = panBtn && (panBtn.contains(e.target) || panBtn === e.target);
+                const isClickOnReset = resetBtn && (resetBtn.contains(e.target) || resetBtn === e.target);
+                
+                // If click is outside all these elements, deactivate modes
+                if (!isClickOnCanvas && !isClickOnZoomIn && !isClickOnZoomOut && !isClickOnPan && !isClickOnReset) {
+                    deactivateZoomPanModes();
+                }
+            });
+        });
+
+        // Brush size slider
+        document.getElementById('brush-size-slider').addEventListener('input', (e) => {
+            brushSize = parseInt(e.target.value);
+            document.getElementById('brush-size-value').textContent = brushSize;
+        });
+
+        // Reset processed image to original state
+        function resetProcessedImage() {
+            if (!originalProcessedImageData) {
+                console.log('No original image data to reset to');
+                return;
+            }
+            
+            // Restore the original image data
+            processedImageData = new ImageData(
+                new Uint8ClampedArray(originalProcessedImageData.data),
+                originalProcessedImageData.width,
+                originalProcessedImageData.height
+            );
+            
+            // Redraw the canvas
+            redrawProcessedCanvas();
+            
+            // Clear undo/redo stacks on reset
+            undoStack = [];
+            redoStack = [];
+            updateUndoRedoButtons();
+            
+            console.log('✅ Image reset to original state');
+        }
+
+        // Save current paint state to undo stack
+        function savePaintState() {
+            if (!processedImageData) return;
+            
+            // Create a deep copy of the current image data
+            const stateCopy = new ImageData(
+                new Uint8ClampedArray(processedImageData.data),
+                processedImageData.width,
+                processedImageData.height
+            );
+            
+            // Save to undo stack
+            undoStack.push(stateCopy);
+            
+            // Clear redo stack when new paint happens
+            redoStack = [];
+            
+            // Limit undo stack size to prevent memory issues (keep last 50 states)
+            if (undoStack.length > 50) {
+                undoStack.shift();
+            }
+            
+            // Show undo/redo buttons
+            document.getElementById('undo-redo-buttons').style.display = 'flex';
+            updateUndoRedoButtons();
+        }
+
+        // Update undo/redo button states
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undo-btn');
+            const redoBtn = document.getElementById('redo-btn');
+            const undoRedoContainer = document.getElementById('undo-redo-buttons');
+            
+            if (!undoBtn || !redoBtn || !undoRedoContainer) return;
+            
+            if (undoStack.length === 0 && redoStack.length === 0) {
+                // Hide buttons if no history
+                undoRedoContainer.style.display = 'none';
+            } else {
+                // Show buttons if there's history
+                undoRedoContainer.style.display = 'flex';
+                undoBtn.disabled = undoStack.length === 0;
+                redoBtn.disabled = redoStack.length === 0;
+            }
+        }
+
+        // Undo last paint operation
+        function undoPaint() {
+            if (undoStack.length === 0 || !processedImageData) return;
+            
+            // Save current state to redo stack before undoing
+            const currentState = new ImageData(
+                new Uint8ClampedArray(processedImageData.data),
+                processedImageData.width,
+                processedImageData.height
+            );
+            redoStack.push(currentState);
+            
+            // Restore previous state from undo stack
+            const previousState = undoStack.pop();
+            processedImageData = new ImageData(
+                new Uint8ClampedArray(previousState.data),
+                previousState.width,
+                previousState.height
+            );
+            
+            // Redraw canvas
+            redrawProcessedCanvas();
+            
+            // Update button states
+            updateUndoRedoButtons();
+        }
+
+        // Redo last undone paint operation
+        function redoPaint() {
+            if (redoStack.length === 0 || !processedImageData) return;
+            
+            // Save current state to undo stack before redoing
+            const currentState = new ImageData(
+                new Uint8ClampedArray(processedImageData.data),
+                processedImageData.width,
+                processedImageData.height
+            );
+            undoStack.push(currentState);
+            
+            // Restore next state from redo stack
+            const nextState = redoStack.pop();
+            processedImageData = new ImageData(
+                new Uint8ClampedArray(nextState.data),
+                nextState.width,
+                nextState.height
+            );
+            
+            // Redraw canvas
+            redrawProcessedCanvas();
+            
+            // Update button states
+            updateUndoRedoButtons();
+        }
+
+        // Keyboard shortcuts for undo/redo
+        document.addEventListener('keydown', (e) => {
+            // Check if we're in the editor panel (painting is active)
+            const editorPanel = document.getElementById('editor-panel');
+            if (!editorPanel || editorPanel.style.display === 'none') return;
+            
+            // Check if user is typing in an input field (don't intercept)
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            
+            // Cmd+Z (Mac) or Ctrl+Z (Windows/Linux) for undo
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                undoPaint();
+            }
+            
+            // Cmd+Shift+Z (Mac) or Ctrl+Y (Windows/Linux) for redo
+            if ((e.metaKey && e.shiftKey && e.key === 'z') || (e.ctrlKey && e.key === 'y')) {
+                e.preventDefault();
+                redoPaint();
+            }
+        });
+
+        // Slider event listeners
+        document.getElementById('contrast-slider').addEventListener('input', (e) => {
+            editorSettings.contrast = parseFloat(e.target.value);
+            document.getElementById('contrast-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('brightness-slider').addEventListener('input', (e) => {
+            editorSettings.brightness = parseFloat(e.target.value);
+            document.getElementById('brightness-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('tones-slider').addEventListener('input', (e) => {
+            editorSettings.tones = parseInt(e.target.value);
+            document.getElementById('tones-value').textContent = `${editorSettings.tones}`;
+            processImage();
+        });
+
+        // Initialize Three.js
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xfafafa);
+            
+            // Add lights to show geometry details and textures
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Soft overall lighting
+            scene.add(ambientLight);
+            
+            // Main directional light from above-left
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight1.position.set(50, 100, 50);
+            directionalLight1.castShadow = false;
+            scene.add(directionalLight1);
+            
+            // Secondary directional light from opposite side for fill
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+            directionalLight2.position.set(-50, 50, -50);
+            directionalLight2.castShadow = false;
+            scene.add(directionalLight2);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(100, 100, 100);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width || window.innerWidth, height || 600, true);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Grid
+            const gridHelper = new THREE.GridHelper(200, 20, 0xcccccc, 0xe0e0e0);
+            scene.add(gridHelper);
+
+            // Animate
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                const w = container.clientWidth || window.innerWidth;
+                const h = container.clientHeight || window.innerHeight - 200;
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h, true);
+            });
+        }
+
+        // Auto tune contrast/brightness using percentile stretch (P5..P95)
+        function autoTuneSettingsFromImage(img) {
+            try {
+                const tmp = document.createElement('canvas');
+                const s = 128;
+                tmp.width = s; tmp.height = s;
+                const ctx = tmp.getContext('2d');
+                ctx.drawImage(img, 0, 0, s, s);
+                const d = ctx.getImageData(0, 0, s, s).data;
+                const values = [];
+                for (let i = 0; i < d.length; i += 4) {
+                    values.push(0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]);
+                }
+                values.sort((a,b)=>a-b);
+                const q = (p)=> values[Math.max(0, Math.min(values.length-1, Math.floor(p*(values.length-1))))];
+                const p5 = q(0.05);
+                const p95 = q(0.95);
+                editorSettings.blackPoint = Math.max(0, Math.min(254, Math.round(p5)));
+                editorSettings.whitePoint = Math.max(editorSettings.blackPoint+1, Math.min(255, Math.round(p95)));
+                // Keep C/B neutral post stretch
+                editorSettings.contrast = 1.0;
+                editorSettings.brightness = 1.0;
+                saveSimpleState();
+            } catch (e) {
+                editorSettings.blackPoint = 0;
+                editorSettings.whitePoint = 255;
+                editorSettings.contrast = 1.0;
+                editorSettings.brightness = 1.0;
+            }
+        }
+
+        // Load STL file
+        function loadSTL(file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const loader = new THREE.STLLoader();
+                let geometry = loader.parse(event.target.result);
+
+                // Ensure per-triangle unique vertices so colors don't bleed across shared vertices
+                if (geometry.index) {
+                    geometry = geometry.toNonIndexed();
+                }
+
+                // Store original geometry
+                originalGeometry = geometry.clone();
+
+                // Remove old mesh
+                if (currentMesh) {
+                    scene.remove(currentMesh);
+                }
+
+                // Create new mesh with lit material to show geometry details (bumps, cubes, textures)
+                // Use MeshStandardMaterial for realistic lighting that shows surface details
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0xffffff, // base white so vertex colors show true values
+                    vertexColors: true, // Enable vertex colors for the painted image
+                    side: THREE.DoubleSide,
+                    flatShading: false, // Use smooth shading to show geometry details
+                    metalness: 0.1, // Slight metalness for better detail visibility
+                    roughness: 0.7 // Moderate roughness to catch light on surface details
+                });
+                currentMesh = new THREE.Mesh(geometry, material);
+
+                // Center the mesh
+                geometry.computeBoundingBox();
+                const center = new THREE.Vector3();
+                geometry.boundingBox.getCenter(center);
+                currentMesh.position.sub(center);
+
+                scene.add(currentMesh);
+
+                // Hide placeholder
+                document.getElementById('three-placeholder').style.display = 'none';
+
+                // Fit camera
+                const box = new THREE.Box3().setFromObject(currentMesh);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(maxDim, maxDim, maxDim);
+                controls.target.set(0, 0, 0);
+                controls.update();
+
+                // Apply colors if PNG is already loaded
+                if (pngImage) {
+                    applyColorsToMesh();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Apply PNG colors to the 3D mesh
+        function applyColorsToMesh() {
+            if (!currentMesh || !pngImage || !originalGeometry) return;
+
+            console.log('Applying colors to mesh...');
+
+            const geometry = currentMesh.geometry;
+            const positions = geometry.attributes.position;
+            const vertices = [];
+            
+            // Get all vertices
+            for (let i = 0; i < positions.count; i++) {
+                vertices.push(new THREE.Vector3(
+                    positions.getX(i),
+                    positions.getY(i),
+                    positions.getZ(i)
+                ));
+            }
+
+            // Compute XY bounds based ONLY on near-horizontal (top) faces to avoid side thickness skew
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const faceCount = positions.count / 3;
+            for (let f = 0; f < faceCount; f++) {
+                const a = f * 3, b = a + 1, c = a + 2;
+                const v0 = vertices[a], v1 = vertices[b], v2 = vertices[c];
+                // Face normal
+                const abx = v1.x - v0.x, aby = v1.y - v0.y, abz = v1.z - v0.z;
+                const acx = v2.x - v0.x, acy = v2.y - v0.y, acz = v2.z - v0.z;
+                const nx = aby * acz - abz * acy;
+                const ny = abz * acx - abx * acz;
+                const nz = abx * acy - aby * acx;
+                const len = Math.hypot(nx, ny, nz) || 1;
+                const nzUnit = nz / len;
+                if (nzUnit > 0.5) { // top-ish
+                    minX = Math.min(minX, v0.x, v1.x, v2.x);
+                    minY = Math.min(minY, v0.y, v1.y, v2.y);
+                    maxX = Math.max(maxX, v0.x, v1.x, v2.x);
+                    maxY = Math.max(maxY, v0.y, v1.y, v2.y);
+                }
+            }
+            if (!isFinite(minX) || !isFinite(minY)) {
+                // Fallback to bbox if no top faces detected
+                geometry.computeBoundingBox();
+                const bbox = geometry.boundingBox;
+                minX = bbox.min.x; minY = bbox.min.y; maxX = bbox.max.x; maxY = bbox.max.y;
+            }
+            const sizeX = Math.max(1e-9, maxX - minX);
+            const sizeY = Math.max(1e-9, maxY - minY);
+
+            // Create canvas to read pixel data
+            const canvas = document.createElement('canvas');
+            canvas.width = pngImage.width;
+            canvas.height = pngImage.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(pngImage, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // Create color array for each face (triangle)
+            const numFaces = positions.count / 3;
+            const colors = new Float32Array(positions.count * 3);
+
+            for (let faceIndex = 0; faceIndex < numFaces; faceIndex++) {
+                const i0 = faceIndex * 3;
+                const i1 = faceIndex * 3 + 1;
+                const i2 = faceIndex * 3 + 2;
+
+                // Get triangle centroid
+                const v0 = vertices[i0];
+                const v1 = vertices[i1];
+                const v2 = vertices[i2];
+                
+                const cx = (v0.x + v1.x + v2.x) / 3;
+                const cy = (v0.y + v1.y + v2.y) / 3;
+                // Snap by selected grid cells to reduce tiny drift across adjacent triangles
+                const u = Math.max(0, Math.min(0.999999, (cx - minX) / sizeX));
+                const v = Math.max(0, Math.min(0.999999, (cy - minY) / sizeY));
+                const grid = selectedGridSize || pngImage?.width || 75;
+                const cellU = Math.floor(u * grid) + 0.5; // center of cell
+                const cellV = Math.floor(v * grid) + 0.5;
+                const snappedU = cellU / grid;
+                const snappedV = cellV / grid;
+                // Map to image coordinates
+                const px = Math.floor(snappedU * (pngImage.width - 1));
+                const py = Math.floor((1 - snappedV) * (pngImage.height - 1)); // Flip Y
+
+                // Get pixel color
+                const pixelIndex = (py * pngImage.width + px) * 4;
+                const r = imageData.data[pixelIndex] / 255;
+                const g = imageData.data[pixelIndex + 1] / 255;
+                const b = imageData.data[pixelIndex + 2] / 255;
+
+                // Apply color to all 3 vertices of this triangle
+                for (let j = 0; j < 3; j++) {
+                    const vertexIndex = (i0 + j) * 3;
+                    colors[vertexIndex] = r;
+                    colors[vertexIndex + 1] = g;
+                    colors[vertexIndex + 2] = b;
+                }
+            }
+
+            // Apply colors to geometry
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            // Update material to use vertex colors
+            currentMesh.material.vertexColors = true;
+            currentMesh.material.needsUpdate = true;
+            // Keep smooth shading to show geometry details (bumps, cubes, textures)
+            // The geometry itself has the detail - lighting will show it naturally
+            if ('flatShading' in currentMesh.material) {
+                currentMesh.material.flatShading = false; // Smooth shading shows surface details better
+            }
+            // Ensure normals are computed for proper lighting
+            geometry.computeVertexNormals();
+            geometry.attributes.color.needsUpdate = true;
+
+            console.log('Colors applied successfully!');
+        }
+
+        function resetCamera() {
+            if (currentMesh) {
+                const box = new THREE.Box3().setFromObject(currentMesh);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(maxDim, maxDim, maxDim);
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+        }
+
+        function toggleWireframe() {
+            if (currentMesh) {
+                currentMesh.material.wireframe = !currentMesh.material.wireframe;
+            }
+        }
+
+        // File upload handlers
+        // Load STL from server based on grid size (auto-load, no user upload)
+        async function loadSTLFromServer(size) {
+            try {
+                console.log(`Loading STL for ${size}×${size} grid from server...`);
+                const response = await fetch(`/get-stl/${size}`);
+                if (!response.ok) {
+                    console.error(`Failed to load STL for size ${size}`);
+                    stlFile = null;
+                    document.getElementById('stl-upload-text').textContent = `Failed to load ${size}×${size} grid`;
+                    checkFilesReady();
+                    return;
+                }
+                const blob = await response.blob();
+                stlFile = new File([blob], `${size}x${size}_grid.stl`, { type: 'application/octet-stream' });
+                document.getElementById('stl-upload-area').classList.add('has-file');
+                document.getElementById('stl-upload-text').textContent = `${size}×${size} grid loaded`;
+                document.getElementById('stl-upload-subtext').textContent = `${size}×${size} cube grid`;
+                
+                // Save to IndexedDB for caching
+                saveFileToDB(dbKey('stl', size), stlFile);
+                
+                loadSTL(stlFile);
+                checkFilesReady();
+                console.log(`✅ Loaded STL for ${size}×${size} grid from server`);
+            } catch (error) {
+                console.error('Error loading STL:', error);
+                stlFile = null;
+                document.getElementById('stl-upload-text').textContent = `Error loading ${size}×${size} grid`;
+                checkFilesReady();
+            }
+        }
+
+        // STL file upload event listener
+        document.getElementById('stl-input').addEventListener('change', (e) => {
+            stlFile = e.target.files[0];
+            if (stlFile) {
+                document.getElementById('stl-upload-area').classList.add('has-file');
+                document.getElementById('stl-upload-text').textContent = stlFile.name;
+                loadSTL(stlFile);
+                checkFilesReady();
+
+                // Persist STL to IndexedDB for current grid size
+                saveFileToDB(dbKey('stl', selectedGridSize), new File([stlFile], stlFile.name, { type: stlFile.type }));
+            }
+        });
+
+        document.getElementById('png-input').addEventListener('change', async (e) => {
+            pngFile = e.target.files[0];
+            if (pngFile) {
+                document.getElementById('png-upload-area').classList.add('has-file');
+                document.getElementById('png-upload-text').textContent = pngFile.name;
+                
+                let fileToProcess = pngFile;
+                
+                // Check if file is HEIC/HEIF and convert it
+                const fileExtension = pngFile.name.toLowerCase().split('.').pop();
+                const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
+                               pngFile.type === 'image/heic' || pngFile.type === 'image/heif';
+                
+                if (isHeic && typeof heic2any !== 'undefined') {
+                    try {
+                        showStatus('loading', 'Converting HEIC image...');
+                        // Convert HEIC to JPEG
+                        const convertedBlob = await heic2any({
+                            blob: pngFile,
+                            toType: 'image/jpeg',
+                            quality: 0.92
+                        });
+                        // heic2any returns an array, take the first element
+                        const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
+                        // Create a new File object with the converted blob
+                        fileToProcess = new File([convertedFile], pngFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
+                            type: 'image/jpeg' 
+                        });
+                        showStatus('success', 'HEIC image converted successfully');
+                    } catch (error) {
+                        console.error('HEIC conversion error:', error);
+                        showStatus('error', 'Failed to convert HEIC image. Please try a different format.');
+                        return;
+                    }
+                }
+                
+                // Load image and show preview
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        rawUploadedImage = img; // Store raw image for editor
+                        fullOriginalImage = img; // Store full original uncropped image
+                        
+                        // Reset cropper state when new image is uploaded
+                        fullProcessedImageDataURL = null;
+                        cropperVisible = false;
+                        cropperManuallyHidden = false; // Reset flag for new image
+                        cropInitialized = false;
+                        const previewImg = document.getElementById('png-preview-img');
+                        if (previewImg) {
+                            previewImg.removeAttribute('data-cropper-fixed');
+                        }
+                        document.getElementById('png-preview').style.display = 'none';
+                        document.getElementById('crop-canvas').style.display = 'none';
+                        document.getElementById('show-cropper-btn').style.display = 'block';
+                        document.getElementById('hide-cropper-btn').style.display = 'none';
+                        
+                        // Show original image in editor
+                        const originalImg = document.getElementById('original-image-canvas');
+                        const placeholder = document.getElementById('original-image-placeholder');
+                        originalImg.src = event.target.result;
+                        originalImg.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        // Auto-tune settings per new image
+                        autoTuneSettingsFromImage(img);
+                        // Update sliders/labels
+                        document.getElementById('contrast-slider').value = String(editorSettings.contrast);
+                        document.getElementById('brightness-slider').value = String(editorSettings.brightness);
+                        document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
+                        document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                        // Don't set preview image here - it will be set to processed version after processImage() runs
+                        // document.getElementById('png-preview-img').src = event.target.result;
+                        // Show crop buttons when image is uploaded
+                        document.getElementById('crop-buttons').style.display = 'block';
+                        // Don't show preview automatically - only show when "Show Cropper" is clicked
+                        // document.getElementById('png-preview').style.display = 'block';
+                        
+                        // Ensure editor is visible so user can adjust before mapping
+                        showEditorPanel();
+                        processImage();
+                        // Automatically show cropper after image is processed (with small delay to ensure processed canvas is ready)
+                        // Only auto-show if user hasn't manually hidden it
+                        if (!cropperManuallyHidden) {
+                            setTimeout(() => {
+                                showCropper();
+                            }, 100);
+                        }
+
+                        // Persist converted file to IndexedDB for current grid size
+                        saveFileToDB(dbKey('png'), fileToProcess);
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(fileToProcess);
+                
+                checkFilesReady();
+            }
+        });
+
+        function checkFilesReady() {
+            const ready = stlFile && pngFile;
+            document.getElementById('generate-obj-btn').disabled = !ready;
+            document.getElementById('checkout-btn').disabled = !ready;
+        }
+
+        // Generate functions
+        async function generateFile(endpoint, filename, successMsg) {
+            if (!stlFile || !pngFile) return;
+
+            console.log(`Generating file from ${endpoint}...`);
+            showStatus('loading', '<span class="spinner"></span>Processing and colorizing your model...');
+            document.getElementById('generate-obj-btn').disabled = true;
+
+            const formData = new FormData();
+            formData.append('stl', stlFile);
+            formData.append('png', pngFile);
+            formData.append('grid_size', String(selectedGridSize));
+
+            try {
+                console.log('Sending request to backend...');
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    let errorMsg = 'Failed to generate file';
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.error || errorMsg;
+                    } catch (e) {
+                        errorMsg = await response.text();
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                console.log('Creating download...');
+                const blob = await response.blob();
+                console.log('Blob size:', blob.size);
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                showStatus('success', successMsg);
+                document.getElementById('generate-obj-btn').disabled = false;
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus('error', `❌ Error: ${error.message}`);
+                document.getElementById('generate-obj-btn').disabled = false;
+            }
+        }
+
+        document.getElementById('generate-obj-btn').addEventListener('click', () => {
+            generateFile('/generate-obj', 'colored_model.zip', '✅ Success! Your OBJ+MTL files have been downloaded as a ZIP.');
+        });
+
+        // Proceed to Checkout - Generate file and redirect to Shopify
+        document.getElementById('checkout-btn').addEventListener('click', async () => {
+            if (!stlFile || !pngFile) return;
+
+            console.log('Proceeding to checkout...');
+            showStatus('loading', '<span class="spinner"></span>Preparing your order...');
+            document.getElementById('checkout-btn').disabled = true;
+
+            try {
+                // Generate and upload file for checkout
+                const formData = new FormData();
+                formData.append('stl', stlFile);
+                formData.append('png', pngFile);
+                formData.append('grid_size', String(selectedGridSize));
+
+                const response = await fetch('/upload-for-checkout', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ error: 'Failed to prepare order' }));
+                    throw new Error(error.error || 'Failed to prepare order');
+                }
+
+                const result = await response.json();
+                const orderId = result.order_id;
+                
+                console.log('Order ID:', orderId);
+                
+                // Redirect to Shopify with order ID as parameter
+                const shopifyUrl = `${SHOPIFY_PRODUCT_URL}?order_id=${orderId}`;
+                window.location.href = shopifyUrl;
+
+            } catch (error) {
+                console.error('Checkout error:', error);
+                showStatus('error', `❌ Error: ${error.message}`);
+                document.getElementById('checkout-btn').disabled = false;
+            }
+        });
+
+        function showStatus(type, message) {
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.innerHTML = message;
+            statusMessage.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Initialize Three.js when page loads
+        window.addEventListener('load', initThree);
+
+        // Restore state and files on load; start with editor visible
+        window.addEventListener('load', async () => {
+            loadSimpleState();
+
+            // Reflect selected grid size buttons
+            document.querySelectorAll('.grid-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.size) === selectedGridSize) {
+                    btn.classList.add('active');
+                }
+            });
+            document.getElementById('png-upload-subtext').textContent = `Will be resized to ${selectedGridSize}×${selectedGridSize} pixels`;
+
+            // Show editor by default and restore any files for the selected size
+            showEditorPanel();
+            await restoreForSize(selectedGridSize);
+            
+            // Load STL for selected grid size
+            await loadSTLFromServer(selectedGridSize);
+            
+            // Setup paint handlers after everything is loaded
+            setTimeout(() => {
+                setupPaintHandlers();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

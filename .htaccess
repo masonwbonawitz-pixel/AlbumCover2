@@ -1,0 +1,14 @@
+# Hostinger Apache redirects file
+# This ensures proper routing for mobile and desktop views
+
+# Mobile route - redirect to mobile/index.html
+RewriteEngine On
+RewriteCond %{REQUEST_URI} ^/mobile/?$
+RewriteRule ^mobile/?$ /mobile/index.html [L]
+
+# Desktop route - redirect to desktop/index.html  
+RewriteCond %{REQUEST_URI} ^/desktop/?$
+RewriteRule ^desktop/?$ /desktop/index.html [L]
+
+# Root redirects handled by index.html JavaScript
+

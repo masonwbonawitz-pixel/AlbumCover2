@@ -1,0 +1,9 @@
+flask==3.0.0
+flask-cors==4.0.0
+numpy-stl==3.1.1
+trimesh==4.0.10
+pillow==10.4.0
+numpy==1.26.2
+networkx==3.2.1
+gunicorn==21.2.0
+# py3mf is optional - code handles it gracefully if not available

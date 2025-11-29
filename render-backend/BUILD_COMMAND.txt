@@ -1,0 +1,4 @@
+# COPY THIS EXACT BUILD COMMAND INTO RENDER:
+
+pip install --upgrade pip setuptools wheel && pip install --only-binary=pillow pillow && pip install -r requirements.txt
+

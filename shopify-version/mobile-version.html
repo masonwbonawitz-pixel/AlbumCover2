@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Album Cover Mosaic Builder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            overflow-x: hidden;
+        }
+
+        /* Mobile-first upload screen */
+        .upload-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            background: white;
+        }
+
+        .upload-screen.hidden {
+            display: none;
+        }
+
+        .upload-icon-large {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .upload-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .upload-subtitle {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .upload-btn {
+            background: black;
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .upload-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Editor interface (hidden initially) */
+        .editor-interface {
+            display: none;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .editor-interface.active {
+            display: flex;
+        }
+
+        /* Canvas area */
+        .canvas-area {
+            flex: 1;
+            position: relative;
+            background: #fafafa;
+            min-height: 50vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .editor-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+            border-radius: 8px;
+        }
+
+        /* Bottom toolbar */
+        .bottom-toolbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            padding: 12px;
+            display: flex;
+            justify-content: space-around;
+            z-index: 100;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+
+        .tool-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            gap: 4px;
+            color: #666;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+
+        .tool-btn.active {
+            color: black;
+            font-weight: 600;
+        }
+
+        .tool-btn-icon {
+            font-size: 24px;
+        }
+
+        /* Tool panels (slide up) */
+        .tool-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 200;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .tool-panel.active {
+            transform: translateY(0);
+        }
+
+        .tool-panel-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+
+        .tool-panel-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .close-panel-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+        }
+
+        .tool-panel-content {
+            padding: 20px;
+        }
+
+        /* Size options */
+        .size-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .size-option {
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            background: white;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .size-option.active {
+            border-color: black;
+            background: #f5f5f5;
+        }
+
+        .size-option-size {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .size-option-desc {
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* Adjust sliders */
+        .slider-group {
+            margin-bottom: 24px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+            border: none;
+        }
+
+        /* Paint palette */
+        .color-palette {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .color-swatch {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            border: 3px solid #ddd;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .color-swatch.active {
+            border-color: black;
+            transform: scale(1.1);
+        }
+
+        /* Export button (floating) */
+        .export-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(76,175,80,0.3);
+            z-index: 150;
+            display: none;
+        }
+
+        .export-btn.visible {
+            display: block;
+        }
+
+        .export-btn:active {
+            transform: scale(0.95);
+        }
+
+        .export-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: black;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 16px;
+            font-size: 16px;
+            color: #666;
+        }
+
+        /* Desktop view */
+        @media (min-width: 768px) {
+            .upload-screen {
+                max-width: 600px;
+                margin: 0 auto;
+            }
+
+            .editor-interface {
+                flex-direction: row;
+            }
+
+            .canvas-area {
+                flex: 1;
+                min-height: 100vh;
+            }
+
+            .bottom-toolbar {
+                position: relative;
+                width: 350px;
+                flex-direction: column;
+                border-top: none;
+                border-left: 1px solid #e0e0e0;
+                padding: 20px;
+                box-shadow: none;
+            }
+
+            .tool-btn {
+                flex-direction: row;
+                justify-content: flex-start;
+                padding: 12px 16px;
+                gap: 12px;
+                font-size: 14px;
+                border-radius: 8px;
+            }
+
+            .tool-btn:hover {
+                background: #f5f5f5;
+            }
+
+            .tool-panel {
+                position: relative;
+                transform: none;
+                border-radius: 0;
+                box-shadow: none;
+                max-height: none;
+                display: none;
+            }
+
+            .tool-panel.active {
+                display: block;
+            }
+
+            .tool-panel-header {
+                position: relative;
+            }
+
+            .export-btn {
+                position: relative;
+                top: auto;
+                right: auto;
+                width: 100%;
+                margin-top: 20px;
+            }
+        }
+
+        .file-input {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Upload Screen (shown first on mobile) -->
+    <div class="upload-screen" id="upload-screen">
+        <div class="upload-icon-large">🖼️</div>
+        <h1 class="upload-title">Custom Mosaic Builder</h1>
+        <p class="upload-subtitle">Upload your photo to get started</p>
+        <label for="image-input" class="upload-btn">
+            📤 Upload Image
+        </label>
+        <input type="file" id="image-input" class="file-input" accept="image/*" capture="environment" />
+    </div>
+
+    <!-- Editor Interface (shown after upload) -->
+    <div class="editor-interface" id="editor-interface">
+        <!-- Canvas Area -->
+        <div class="canvas-area" id="canvas-area">
+            <canvas id="main-canvas" class="editor-canvas"></canvas>
+        </div>
+
+        <!-- Bottom Toolbar -->
+        <div class="bottom-toolbar">
+            <label for="image-input-2" class="tool-btn" data-tool="upload">
+                <span class="tool-btn-icon">📤</span>
+                <span>Upload</span>
+            </label>
+            <input type="file" id="image-input-2" class="file-input" accept="image/*" capture="environment" />
+            <button class="tool-btn" data-tool="size">
+                <span class="tool-btn-icon">📏</span>
+                <span>Size</span>
+            </button>
+            <button class="tool-btn" data-tool="adjust">
+                <span class="tool-btn-icon">⚙️</span>
+                <span>Adjust</span>
+            </button>
+            <button class="tool-btn" data-tool="palette">
+                <span class="tool-btn-icon">🎨</span>
+                <span>Palette</span>
+            </button>
+
+            <!-- Tool Panels (Desktop only here) -->
+            <div class="tool-panel" id="panel-size">
+                <div class="tool-panel-header">
+                    <h3 class="tool-panel-title">Choose Size</h3>
+                    <button class="close-panel-btn" onclick="closeAllPanels()">×</button>
+                </div>
+                <div class="tool-panel-content">
+                    <div class="size-options">
+                        <div class="size-option" data-size="32" onclick="selectSize(32)">
+                            <div class="size-option-size">32 × 32</div>
+                            <div class="size-option-desc">$39.99</div>
+                        </div>
+                        <div class="size-option" data-size="48" onclick="selectSize(48)">
+                            <div class="size-option-size">48 × 48</div>
+                            <div class="size-option-desc">$49.99</div>
+                        </div>
+                        <div class="size-option active" data-size="75" onclick="selectSize(75)">
+                            <div class="size-option-size">75 × 75</div>
+                            <div class="size-option-desc">$59.99</div>
+                        </div>
+                        <div class="size-option" data-size="96" onclick="selectSize(96)">
+                            <div class="size-option-size">96 × 96</div>
+                            <div class="size-option-desc">$79.99</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tool-panel" id="panel-adjust">
+                <div class="tool-panel-header">
+                    <h3 class="tool-panel-title">Adjust Image</h3>
+                    <button class="close-panel-btn" onclick="closeAllPanels()">×</button>
+                </div>
+                <div class="tool-panel-content">
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Contrast</span>
+                            <span id="contrast-value">1.2</span>
+                        </div>
+                        <input type="range" class="slider" id="contrast-slider" min="0.5" max="2" step="0.1" value="1.2" />
+                    </div>
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Brightness</span>
+                            <span id="brightness-value">1.0</span>
+                        </div>
+                        <input type="range" class="slider" id="brightness-slider" min="0.5" max="1.5" step="0.1" value="1.0" />
+                    </div>
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Tones</span>
+                            <span id="tones-value">4</span>
+                        </div>
+                        <input type="range" class="slider" id="tones-slider" min="2" max="4" step="1" value="4" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="tool-panel" id="panel-palette">
+                <div class="tool-panel-header">
+                    <h3 class="tool-panel-title">Color Palette</h3>
+                    <button class="close-panel-btn" onclick="closeAllPanels()">×</button>
+                </div>
+                <div class="tool-panel-content">
+                    <div class="color-palette">
+                        <div class="color-swatch active" style="background: rgb(0,0,0);" data-color="black"></div>
+                        <div class="color-swatch" style="background: rgb(85,85,85);" data-color="darkgray"></div>
+                        <div class="color-swatch" style="background: rgb(170,170,170);" data-color="lightgray"></div>
+                        <div class="color-swatch" style="background: rgb(255,255,255); border-color: #ccc;" data-color="white"></div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="export-btn" id="export-btn" onclick="exportModel()">
+                🎨 Generate Model
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">Processing your model...</div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = window.ALBUM_BUILDER_API_URL || window.location.origin;
+
+        // State
+        let uploadedImage = null;
+        let selectedGridSize = 75;
+        let currentTool = null;
+        let editorSettings = {
+            contrast: 1.2,
+            brightness: 1.0,
+            tones: 4,
+            blackPoint: 0,
+            whitePoint: 255
+        };
+
+        // Elements
+        const uploadScreen = document.getElementById('upload-screen');
+        const editorInterface = document.getElementById('editor-interface');
+        const mainCanvas = document.getElementById('main-canvas');
+        const mainCtx = mainCanvas.getContext('2d');
+        const exportBtn = document.getElementById('export-btn');
+        const imageInput = document.getElementById('image-input');
+
+        // Upload handler
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    uploadedImage = img;
+                    autoTuneSettings(img);
+                    processImage();
+                    showEditor();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        imageInput.addEventListener('change', handleImageUpload);
+        document.getElementById('image-input-2').addEventListener('change', handleImageUpload);
+
+        // Show editor after upload
+        function showEditor() {
+            uploadScreen.classList.add('hidden');
+            editorInterface.classList.add('active');
+            exportBtn.classList.add('visible');
+        }
+
+        // Tool button handling
+        document.querySelectorAll('.tool-btn:not([for])').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tool = btn.dataset.tool;
+                toggleToolPanel(tool);
+            });
+        });
+
+        // Toggle tool panels
+        function toggleToolPanel(tool) {
+            const panel = document.getElementById(`panel-${tool}`);
+            const isActive = panel.classList.contains('active');
+            
+            closeAllPanels();
+            
+            if (!isActive) {
+                panel.classList.add('active');
+                document.querySelector(`[data-tool="${tool}"]`).classList.add('active');
+                currentTool = tool;
+            } else {
+                currentTool = null;
+            }
+        }
+
+        function closeAllPanels() {
+            document.querySelectorAll('.tool-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            currentTool = null;
+        }
+
+        // Size selection
+        function selectSize(size) {
+            selectedGridSize = size;
+            document.querySelectorAll('.size-option').forEach(opt => {
+                opt.classList.toggle('active', parseInt(opt.dataset.size) === size);
+            });
+            processImage();
+        }
+
+        // Process image
+        function processImage() {
+            if (!uploadedImage) return;
+
+            const pixelSize = selectedGridSize;
+            
+            // Set canvas to display size
+            const maxSize = Math.min(window.innerWidth - 40, window.innerHeight - 200, 800);
+            mainCanvas.width = maxSize;
+            mainCanvas.height = maxSize;
+
+            // Create temp canvas at pixel size
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = pixelSize;
+            tempCanvas.height = pixelSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            tempCtx.drawImage(uploadedImage, 0, 0, pixelSize, pixelSize);
+            
+            const imageData = tempCtx.getImageData(0, 0, pixelSize, pixelSize);
+            const data = imageData.data;
+
+            // Process pixels
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                // Apply adjustments
+                const bp = editorSettings.blackPoint;
+                const wp = editorSettings.whitePoint;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                // Posterize
+                const base = [0, 85, 170, 255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k * (base.length - 1)) / (n - 1));
+                    indices.push(base[idx]);
+                }
+                let finalColor = indices[indices.length - 1];
+                for (let t = 0; t < indices.length - 1; t++) {
+                    const mid = (indices[t] + indices[t + 1]) / 2;
+                    if (gray < mid) {
+                        finalColor = indices[t];
+                        break;
+                    }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+
+            tempCtx.putImageData(imageData, 0, 0);
+
+            // Draw to main canvas (pixelated)
+            mainCtx.imageSmoothingEnabled = false;
+            mainCtx.drawImage(tempCanvas, 0, 0, mainCanvas.width, mainCanvas.height);
+        }
+
+        // Auto-tune settings
+        function autoTuneSettings(img) {
+            try {
+                const tmp = document.createElement('canvas');
+                tmp.width = 128;
+                tmp.height = 128;
+                const ctx = tmp.getContext('2d');
+                ctx.drawImage(img, 0, 0, 128, 128);
+                const d = ctx.getImageData(0, 0, 128, 128).data;
+                const values = [];
+                for (let i = 0; i < d.length; i += 4) {
+                    values.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+                }
+                values.sort((a, b) => a - b);
+                const q = (p) => values[Math.floor(p * (values.length - 1))];
+                editorSettings.blackPoint = Math.round(q(0.05));
+                editorSettings.whitePoint = Math.round(q(0.95));
+                editorSettings.contrast = 1.0;
+                editorSettings.brightness = 1.0;
+            } catch (e) {
+                editorSettings.blackPoint = 0;
+                editorSettings.whitePoint = 255;
+            }
+        }
+
+        // Sliders
+        document.getElementById('contrast-slider').addEventListener('input', (e) => {
+            editorSettings.contrast = parseFloat(e.target.value);
+            document.getElementById('contrast-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('brightness-slider').addEventListener('input', (e) => {
+            editorSettings.brightness = parseFloat(e.target.value);
+            document.getElementById('brightness-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('tones-slider').addEventListener('input', (e) => {
+            editorSettings.tones = parseInt(e.target.value);
+            document.getElementById('tones-value').textContent = e.target.value;
+            processImage();
+        });
+
+        // Export function
+        async function exportModel() {
+            if (!uploadedImage) return;
+
+            document.getElementById('loading-overlay').classList.add('active');
+            exportBtn.disabled = true;
+
+            try {
+                // Create processed image blob
+                const pixelSize = selectedGridSize;
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = pixelSize;
+                finalCanvas.height = pixelSize;
+                const finalCtx = finalCanvas.getContext('2d');
+
+                finalCtx.drawImage(uploadedImage, 0, 0, pixelSize, pixelSize);
+                const imageData = finalCtx.getImageData(0, 0, pixelSize, pixelSize);
+                const data = imageData.data;
+
+                // Apply same processing
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                    const bp = editorSettings.blackPoint;
+                    const wp = editorSettings.whitePoint;
+                    gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+                    gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                    gray = gray * editorSettings.brightness;
+                    gray = Math.max(0, Math.min(255, gray));
+
+                    const base = [0, 85, 170, 255];
+                    const n = Math.max(2, Math.min(4, editorSettings.tones));
+                    const indices = [];
+                    for (let k = 0; k < n; k++) {
+                        const idx = Math.round((k * (base.length - 1)) / (n - 1));
+                        indices.push(base[idx]);
+                    }
+                    let finalColor = indices[indices.length - 1];
+                    for (let t = 0; t < indices.length - 1; t++) {
+                        const mid = (indices[t] + indices[t + 1]) / 2;
+                        if (gray < mid) {
+                            finalColor = indices[t];
+                            break;
+                        }
+                    }
+
+                    data[i] = finalColor;
+                    data[i + 1] = finalColor;
+                    data[i + 2] = finalColor;
+                }
+
+                finalCtx.putImageData(imageData, 0, 0);
+
+                const pngBlob = await new Promise(resolve => finalCanvas.toBlob(resolve, 'image/png'));
+
+                // Send to server (you'll need STL file for actual export)
+                alert('Model ready! Connect to backend to generate OBJ/STL files.');
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                document.getElementById('loading-overlay').classList.remove('active');
+                exportBtn.disabled = false;
+            }
+        }
+
+        // Close panels on outside click (mobile)
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth < 768 && currentTool) {
+                const panel = document.getElementById(`panel-${currentTool}`);
+                if (!panel.contains(e.target) && !e.target.closest('.tool-btn')) {
+                    closeAllPanels();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+

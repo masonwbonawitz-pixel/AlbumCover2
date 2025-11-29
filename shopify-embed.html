@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Album Cover Mosaic Builder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        /* ============================================
+           SHOPIFY EMBEDDED VERSION - 3D Album Builder
+           ============================================ */
+        
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Container for Shopify embed - isolates styles */
+        #album-cover-builder {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
+        .main-container {
+            display: flex;
+            min-height: 100vh;
+            flex-wrap: wrap;
+        }
+
+        /* Left Panel - 3D Viewer */
+        .viewer-panel {
+            flex: 1;
+            background: white;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-width: 400px;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #fafafa;
+            border-right: 1px solid #e0e0e0;
+            min-height: 600px;
+        }
+
+        #canvas-container canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Inline editor panel */
+        #editor-panel {
+            flex: 1;
+            padding: 20px 24px;
+            overflow: auto;
+            background: #ffffff;
+        }
+
+        .viewer-controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .viewer-btn {
+            background: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            font-size: 14px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .viewer-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .viewer-btn.icon-only {
+            padding: 10px;
+            font-size: 18px;
+        }
+
+        .placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .placeholder-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        /* Right Panel - Controls */
+        .control-panel {
+            width: 450px;
+            background: white;
+            padding: 40px;
+            overflow-y: auto;
+            min-width: 350px;
+        }
+
+        .title {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .price {
+            font-size: 20px;
+            color: #666;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #fafafa;
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover {
+            border-color: #999;
+            background: #f5f5f5;
+        }
+
+        .upload-area.has-file {
+            border-color: #4CAF50;
+            background: #f1f8f4;
+        }
+
+        .upload-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        .upload-text {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .upload-subtext {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .grid-options {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .grid-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .grid-btn.active {
+            background: black;
+            color: white;
+            border-color: black;
+        }
+
+        .grid-btn:hover:not(.active) {
+            border-color: #999;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .color-swatch {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: black;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #333;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .btn-secondary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(76,175,80,0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status-message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #0c5460;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #856404;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .panel-title {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .canvas-wrapper {
+            text-align: center;
+        }
+
+        .canvas-label {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        .editor-canvas {
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1 / 1;
+            height: auto;
+            border-radius: 10px;
+            border: 2px solid #ddd;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: #ffffff !important;
+        }
+
+        #png-preview img { 
+            background: #ffffff !important; 
+        }
+
+        .slider-control {
+            margin-bottom: 20px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: black;
+            cursor: pointer;
+            border: none;
+        }
+
+        .editor-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        /* API Config (hidden by default) */
+        .api-config {
+            display: none;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .api-config input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .control-panel {
+                width: 100%;
+            }
+
+            #canvas-container {
+                height: 400px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .viewer-panel {
+                min-width: 100%;
+            }
+            
+            .control-panel {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="album-cover-builder">
+        <div class="main-container">
+            <!-- Left Panel: Editor (initial) and 3D Viewer -->
+            <div class="viewer-panel">
+                <!-- Inline Editor Panel (shown first) -->
+                <div id="editor-panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">✨ Edit Your Photo</h2>
+                        <button class="viewer-btn" onclick="show3DView()">👀 View in 3D</button>
+                    </div>
+                    <div class="canvas-wrapper" style="margin-top:12px;">
+                        <div class="canvas-label">Processed (Posterized)</div>
+                        <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1;"></canvas>
+                    </div>
+                    <div class="editor-actions">
+                        <button class="btn" style="background: #ccc; color: #333;" onclick="show3DView()">Cancel</button>
+                        <button class="btn btn-secondary" onclick="applyPhotoEdits()">✓ Apply & Use This Image</button>
+                    </div>
+                </div>
+
+                <!-- 3D Viewer (hidden initially) -->
+                <div id="canvas-container" style="display:none;">
+                    <div class="viewer-controls">
+                        <button class="viewer-btn" onclick="showEditorPanel()" id="edit-photo-btn">✨ Edit Photo</button>
+                        <button class="viewer-btn icon-only" onclick="resetCamera()" title="Reset View">🔄</button>
+                        <button class="viewer-btn icon-only" onclick="toggleWireframe()" title="Toggle Wireframe">🔲</button>
+                    </div>
+                    <div id="three-placeholder" class="placeholder">
+                        <div class="placeholder-icon">🧱</div>
+                        <div>Upload an STL file to preview your 3D model</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Controls -->
+            <div class="control-panel">
+                <h1 class="title">3D Album Cover Mosaic Builder</h1>
+                <div class="price">Create colorized 3D prints</div>
+
+                <!-- API Configuration (hidden, set via data attribute) -->
+                <div class="api-config" id="api-config">
+                    <label>API Base URL:</label>
+                    <input type="text" id="api-base-url" placeholder="https://your-api-domain.com" />
+                </div>
+
+                <!-- Upload PNG -->
+                <div class="section">
+                    <div class="section-label">1. Upload Color Image (PNG)</div>
+                    <div class="upload-area" id="png-upload-area" onclick="document.getElementById('png-input').click()">
+                        <div class="upload-icon">🖼️</div>
+                        <div class="upload-text" id="png-upload-text">Choose PNG file...</div>
+                        <div class="upload-subtext" id="png-upload-subtext">Will be resized to 75×75 pixels</div>
+                    </div>
+                    <input type="file" id="png-input" class="file-input" accept=".png,.jpg,.jpeg" />
+                    
+                    <!-- PNG Preview -->
+                    <div id="png-preview" style="display: none; text-align: center; margin-top: 15px;">
+                        <img id="png-preview-img" style="max-width: 150px; border-radius: 8px; border: 2px solid #ddd;" />
+                    </div>
+                </div>
+
+                <!-- Grid Size -->
+                <div class="section">
+                    <div class="section-label">2. Select Grid Size</div>
+                    <div class="grid-options">
+                        <button class="grid-btn" data-size="32" onclick="selectGridSize(32)">32 × 32</button>
+                        <button class="grid-btn" data-size="48" onclick="selectGridSize(48)">48 × 48</button>
+                        <button class="grid-btn active" data-size="75" onclick="selectGridSize(75)">75 × 75</button>
+                        <button class="grid-btn" data-size="96" onclick="selectGridSize(96)">96 × 96</button>
+                    </div>
+                </div>
+
+                <!-- Image Adjustments -->
+                <div class="section">
+                    <div class="section-label">Image Adjustments</div>
+                    <div class="slider-control">
+                        <div class="slider-label">
+                            <span>Contrast</span>
+                            <span id="contrast-value">1.2</span>
+                        </div>
+                        <input type="range" class="slider" id="contrast-slider" min="0.5" max="2" step="0.1" value="1.2" />
+                    </div>
+                    <div class="slider-control">
+                        <div class="slider-label">
+                            <span>Brightness</span>
+                            <span id="brightness-value">1.0</span>
+                        </div>
+                        <input type="range" class="slider" id="brightness-slider" min="0.5" max="1.5" step="0.1" value="1.0" />
+                    </div>
+                    <div class="slider-control">
+                        <div class="slider-label">
+                            <span>Tones</span>
+                            <span id="tones-value">4</span>
+                        </div>
+                        <input type="range" class="slider" id="tones-slider" min="2" max="4" step="1" value="4" />
+                    </div>
+                </div>
+
+                <!-- Upload STL -->
+                <div class="section" id="stl-upload-section" style="display: none;">
+                    <div class="section-label">3. Upload STL Model</div>
+                    <div class="upload-area" id="stl-upload-area" onclick="document.getElementById('stl-input').click()">
+                        <div class="upload-icon">📦</div>
+                        <div class="upload-text" id="stl-upload-text">Choose STL file...</div>
+                        <div class="upload-subtext" id="stl-upload-subtext">75×75 cube grid</div>
+                    </div>
+                    <input type="file" id="stl-input" class="file-input" accept=".stl" />
+                </div>
+
+                <!-- Color Palette -->
+                <div class="section">
+                    <div class="section-label">Supported Colors</div>
+                    <div class="color-palette">
+                        <div class="color-swatch" style="background: rgb(0,0,0);" title="Black"></div>
+                        <div class="color-swatch" style="background: rgb(85,85,85);" title="Dark Gray"></div>
+                        <div class="color-swatch" style="background: rgb(170,170,170);" title="Light Gray"></div>
+                        <div class="color-swatch" style="background: rgb(255,255,255);" title="White"></div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" id="generate-obj-btn" disabled style="flex: 1;">
+                        🎨 Generate OBJ
+                    </button>
+                </div>
+
+                <!-- Status Message -->
+                <div class="status-message" id="status-message"></div>
+
+                <!-- Info Box -->
+                <div class="info-box">
+                    <strong>💡 How it works:</strong>
+                    Each pixel in your PNG maps to one cube in the STL grid. Colors are preserved exactly as-is.
+                    <br><br>
+                    <strong>Output:</strong> OBJ file with MTL colors - Import to Bambu Studio and export as 3MF for printing.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURATION - Set your API URL here
+        // ============================================
+        // Option 1: Set via data attribute on the container
+        const container = document.getElementById('album-cover-builder');
+        let API_BASE_URL = container.getAttribute('data-api-url') || '';
+        
+        // Option 2: Set via window variable (for Shopify)
+        if (window.ALBUM_BUILDER_API_URL) {
+            API_BASE_URL = window.ALBUM_BUILDER_API_URL;
+        }
+        
+        // Option 3: Default to current origin (for same-domain)
+        if (!API_BASE_URL) {
+            API_BASE_URL = window.location.origin;
+        }
+        
+        // Remove trailing slash
+        API_BASE_URL = API_BASE_URL.replace(/\/$/, '');
+
+        console.log('API Base URL:', API_BASE_URL);
+
+        // ============================================
+        // Application Code
+        // ============================================
+        let stlFile = null;
+        let pngFile = null;
+        let pngImage = null;
+        let scene, camera, renderer, controls, currentMesh;
+        let originalGeometry = null;
+        let selectedGridSize = 75;
+        let rawUploadedImage = null;
+        let editorSettings = {
+            contrast: 1.2,
+            brightness: 1.0,
+            pixelSize: 75,
+            tones: 4,
+            blackPoint: 0,
+            whitePoint: 255
+        };
+
+        const pixelSizes = [32, 48, 75, 96];
+
+        // IndexedDB persistence for files
+        let dbPromise = null;
+        function openDB() {
+            if (dbPromise) return dbPromise;
+            dbPromise = new Promise((resolve, reject) => {
+                const req = indexedDB.open('albumCoverDB', 1);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('files')) {
+                        db.createObjectStore('files');
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            return dbPromise;
+        }
+
+        function dbKey(type, size = selectedGridSize) {
+            return `${type}_${size}`;
+        }
+
+        async function saveFileToDB(key, file) {
+            try {
+                const db = await openDB();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('files', 'readwrite');
+                    const store = tx.objectStore('files');
+                    const value = { name: file.name, type: file.type, blob: file };
+                    const req = store.put(value, key);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            } catch (e) {
+                console.warn('Failed to save file to IndexedDB', e);
+            }
+        }
+
+        async function loadFileFromDB(key) {
+            try {
+                const db = await openDB();
+                return await new Promise((resolve, reject) => {
+                    const tx = db.transaction('files', 'readonly');
+                    const store = tx.objectStore('files');
+                    const req = store.get(key);
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = () => reject(req.error);
+                });
+            } catch (e) {
+                console.warn('Failed to load file from IndexedDB', e);
+                return null;
+            }
+        }
+
+        function saveSimpleState() {
+            localStorage.setItem('selectedGridSize', String(selectedGridSize));
+            localStorage.setItem('editorSettings', JSON.stringify(editorSettings));
+        }
+
+        function loadSimpleState() {
+            const sizeStr = localStorage.getItem('selectedGridSize');
+            if (sizeStr) {
+                const s = parseInt(sizeStr);
+                if ([32,48,75,96].includes(s)) {
+                    selectedGridSize = s;
+                }
+            }
+            const es = localStorage.getItem('editorSettings');
+            if (es) {
+                try {
+                    const parsed = JSON.parse(es);
+                    editorSettings = { ...editorSettings, ...parsed };
+                } catch {}
+            }
+        }
+
+        async function restoreForSize(size) {
+            const pngEntry = await loadFileFromDB(dbKey('png', size));
+            if (pngEntry && pngEntry.blob) {
+                const restoredPNG = new File([pngEntry.blob], pngEntry.name || 'image.png', { type: pngEntry.type || 'image/png' });
+                pngFile = restoredPNG;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        rawUploadedImage = img;
+                        pngImage = img;
+                        autoTuneSettingsFromImage(img);
+                        document.getElementById('contrast-slider').value = String(editorSettings.contrast);
+                        document.getElementById('brightness-slider').value = String(editorSettings.brightness);
+                        document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
+                        document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                        document.getElementById('png-preview-img').src = ev.target.result;
+                        document.getElementById('png-preview').style.display = 'block';
+                        document.getElementById('png-upload-area').classList.add('has-file');
+                        document.getElementById('png-upload-text').textContent = restoredPNG.name;
+                        checkFilesReady();
+                        if (currentMesh) applyColorsToMesh();
+                        processImage();
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(restoredPNG);
+            } else {
+                document.getElementById('png-preview').style.display = 'none';
+                document.getElementById('png-upload-area').classList.remove('has-file');
+                document.getElementById('png-upload-text').textContent = 'Choose PNG file...';
+                pngFile = null;
+            }
+
+            const stlEntry = await loadFileFromDB(dbKey('stl', size));
+            if (stlEntry && stlEntry.blob) {
+                const restoredSTL = new File([stlEntry.blob], stlEntry.name || 'model.stl', { type: stlEntry.type || 'model/stl' });
+                stlFile = restoredSTL;
+                document.getElementById('stl-upload-section').style.display = 'block';
+                document.getElementById('stl-upload-area').classList.add('has-file');
+                document.getElementById('stl-upload-text').textContent = restoredSTL.name;
+                loadSTL(restoredSTL);
+            } else {
+                document.getElementById('stl-upload-area').classList.remove('has-file');
+                document.getElementById('stl-upload-text').textContent = 'Choose STL file...';
+                stlFile = null;
+            }
+
+            checkFilesReady();
+        }
+
+        function selectGridSize(size) {
+            selectedGridSize = size;
+            saveSimpleState();
+            
+            document.querySelectorAll('.grid-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.size) === size) {
+                    btn.classList.add('active');
+                }
+            });
+
+            document.getElementById('stl-upload-section').style.display = 'block';
+            document.getElementById('stl-upload-subtext').textContent = `${size}×${size} cube grid`;
+            document.getElementById('png-upload-subtext').textContent = `Will be resized to ${size}×${size} pixels`;
+            
+            restoreForSize(size);
+        }
+
+        function showEditorPanel() {
+            document.getElementById('editor-panel').style.display = 'block';
+            document.getElementById('canvas-container').style.display = 'none';
+            if (rawUploadedImage) processImage();
+        }
+
+        function show3DView() {
+            document.getElementById('editor-panel').style.display = 'none';
+            document.getElementById('canvas-container').style.display = 'block';
+            requestAnimationFrame(() => {
+                try {
+                    const container = document.getElementById('canvas-container');
+                    let w = container.clientWidth || container.offsetWidth;
+                    let h = container.clientHeight || container.offsetHeight;
+                    if (!w || !h) {
+                        w = window.innerWidth;
+                        h = window.innerHeight;
+                    }
+                    if (renderer && container && renderer.domElement && renderer.domElement.parentNode !== container) {
+                        container.appendChild(renderer.domElement);
+                    }
+                    if (renderer && camera) {
+                        renderer.setSize(w, h, true);
+                        camera.aspect = w / h;
+                        camera.updateProjectionMatrix();
+                    }
+                    if (currentMesh) {
+                        const box = new THREE.Box3().setFromObject(currentMesh);
+                        const size = box.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z) || 100;
+                        camera.position.set(maxDim, maxDim, maxDim);
+                        controls.target.set(0, 0, 0);
+                        controls.update();
+                    }
+                    if (renderer && scene && camera) {
+                        renderer.render(scene, camera);
+                    }
+                } catch (e) {
+                    console.warn('Resize after showing 3D view failed:', e);
+                }
+            });
+        }
+
+        function processImage() {
+            if (!rawUploadedImage) return;
+
+            const processedCanvas = document.getElementById('processed-canvas');
+            const processedCtx = processedCanvas.getContext('2d');
+
+            const containerWidth = document.getElementById('editor-panel').clientWidth - 48;
+            const side = Math.max(200, Math.min(containerWidth, window.innerHeight - 240));
+            processedCanvas.width = side;
+            processedCanvas.height = side;
+
+            const pixelSize = selectedGridSize;
+            
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = pixelSize;
+            tempCanvas.height = pixelSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            tempCtx.drawImage(rawUploadedImage, 0, 0, pixelSize, pixelSize);
+            
+            const imageData = tempCtx.getImageData(0, 0, pixelSize, pixelSize);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                const bp = editorSettings.blackPoint ?? 0;
+                const wp = editorSettings.whitePoint ?? 255;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                const base = [0,85,170,255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k*(base.length-1))/(n-1));
+                    indices.push(base[idx]);
+                }
+                let finalColor = indices[indices.length-1];
+                for (let t = 0; t < indices.length-1; t++) {
+                    const mid = (indices[t] + indices[t+1]) / 2;
+                    if (gray < mid) { finalColor = indices[t]; break; }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+
+            tempCtx.putImageData(imageData, 0, 0);
+
+            processedCtx.imageSmoothingEnabled = false;
+            processedCtx.drawImage(tempCanvas, 0, 0, processedCanvas.width, processedCanvas.height);
+        }
+
+        function applyPhotoEdits() {
+            const pixelSize = editorSettings.pixelSize;
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = pixelSize;
+            finalCanvas.height = pixelSize;
+            const finalCtx = finalCanvas.getContext('2d');
+
+            finalCtx.drawImage(rawUploadedImage, 0, 0, pixelSize, pixelSize);
+            const imageData = finalCtx.getImageData(0, 0, pixelSize, pixelSize);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                const bp = editorSettings.blackPoint ?? 0;
+                const wp = editorSettings.whitePoint ?? 255;
+                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+
+                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                gray = gray * editorSettings.brightness;
+                gray = Math.max(0, Math.min(255, gray));
+
+                const base = [0,85,170,255];
+                const n = Math.max(2, Math.min(4, editorSettings.tones|0));
+                const indices = [];
+                for (let k = 0; k < n; k++) {
+                    const idx = Math.round((k*(base.length-1))/(n-1));
+                    indices.push(base[idx]);
+                }
+                let finalColor = indices[indices.length-1];
+                for (let t = 0; t < indices.length-1; t++) {
+                    const mid = (indices[t] + indices[t+1]) / 2;
+                    if (gray < mid) { finalColor = indices[t]; break; }
+                }
+
+                data[i] = finalColor;
+                data[i + 1] = finalColor;
+                data[i + 2] = finalColor;
+            }
+
+            finalCtx.putImageData(imageData, 0, 0);
+
+            finalCanvas.toBlob((blob) => {
+                const processedFile = new File([blob], 'processed.png', { type: 'image/png' });
+                pngFile = processedFile;
+
+                const img = new Image();
+                img.onload = () => {
+                    pngImage = img;
+                    document.getElementById('png-preview-img').src = img.src;
+                    document.getElementById('png-preview').style.display = 'block';
+                    document.getElementById('png-upload-area').classList.add('has-file');
+                    document.getElementById('png-upload-text').textContent = 'Processed image';
+
+                    if (currentMesh) {
+                        applyColorsToMesh();
+                    }
+
+                    checkFilesReady();
+                    show3DView();
+                };
+                img.src = URL.createObjectURL(blob);
+
+                saveFileToDB(dbKey('png'), processedFile);
+            }, 'image/png');
+        }
+
+        document.getElementById('contrast-slider').addEventListener('input', (e) => {
+            editorSettings.contrast = parseFloat(e.target.value);
+            document.getElementById('contrast-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('brightness-slider').addEventListener('input', (e) => {
+            editorSettings.brightness = parseFloat(e.target.value);
+            document.getElementById('brightness-value').textContent = e.target.value;
+            processImage();
+        });
+
+        document.getElementById('tones-slider').addEventListener('input', (e) => {
+            editorSettings.tones = parseInt(e.target.value);
+            document.getElementById('tones-value').textContent = `${editorSettings.tones}`;
+            processImage();
+        });
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xfafafa);
+
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(100, 100, 100);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width || window.innerWidth, height || 600, true);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            const gridHelper = new THREE.GridHelper(200, 20, 0xcccccc, 0xe0e0e0);
+            scene.add(gridHelper);
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            window.addEventListener('resize', () => {
+                const w = container.clientWidth || window.innerWidth;
+                const h = container.clientHeight || window.innerHeight - 200;
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h, true);
+            });
+        }
+
+        function autoTuneSettingsFromImage(img) {
+            try {
+                const tmp = document.createElement('canvas');
+                const s = 128;
+                tmp.width = s; tmp.height = s;
+                const ctx = tmp.getContext('2d');
+                ctx.drawImage(img, 0, 0, s, s);
+                const d = ctx.getImageData(0, 0, s, s).data;
+                const values = [];
+                for (let i = 0; i < d.length; i += 4) {
+                    values.push(0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]);
+                }
+                values.sort((a,b)=>a-b);
+                const q = (p)=> values[Math.max(0, Math.min(values.length-1, Math.floor(p*(values.length-1))))];
+                const p5 = q(0.05);
+                const p95 = q(0.95);
+                editorSettings.blackPoint = Math.max(0, Math.min(254, Math.round(p5)));
+                editorSettings.whitePoint = Math.max(editorSettings.blackPoint+1, Math.min(255, Math.round(p95)));
+                editorSettings.contrast = 1.0;
+                editorSettings.brightness = 1.0;
+                saveSimpleState();
+            } catch (e) {
+                editorSettings.blackPoint = 0;
+                editorSettings.whitePoint = 255;
+                editorSettings.contrast = 1.0;
+                editorSettings.brightness = 1.0;
+            }
+        }
+
+        function loadSTL(file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const loader = new THREE.STLLoader();
+                let geometry = loader.parse(event.target.result);
+
+                if (geometry.index) {
+                    geometry = geometry.toNonIndexed();
+                }
+
+                originalGeometry = geometry.clone();
+
+                if (currentMesh) {
+                    scene.remove(currentMesh);
+                }
+
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    vertexColors: false,
+                    side: THREE.DoubleSide
+                });
+                currentMesh = new THREE.Mesh(geometry, material);
+
+                geometry.computeBoundingBox();
+                const center = new THREE.Vector3();
+                geometry.boundingBox.getCenter(center);
+                currentMesh.position.sub(center);
+
+                scene.add(currentMesh);
+
+                document.getElementById('three-placeholder').style.display = 'none';
+
+                const box = new THREE.Box3().setFromObject(currentMesh);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(maxDim, maxDim, maxDim);
+                controls.target.set(0, 0, 0);
+                controls.update();
+
+                if (pngImage) {
+                    applyColorsToMesh();
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function applyColorsToMesh() {
+            if (!currentMesh || !pngImage || !originalGeometry) return;
+
+            const geometry = currentMesh.geometry;
+            const positions = geometry.attributes.position;
+            const vertices = [];
+            
+            for (let i = 0; i < positions.count; i++) {
+                vertices.push(new THREE.Vector3(
+                    positions.getX(i),
+                    positions.getY(i),
+                    positions.getZ(i)
+                ));
+            }
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const faceCount = positions.count / 3;
+            for (let f = 0; f < faceCount; f++) {
+                const a = f * 3, b = a + 1, c = a + 2;
+                const v0 = vertices[a], v1 = vertices[b], v2 = vertices[c];
+                const abx = v1.x - v0.x, aby = v1.y - v0.y, abz = v1.z - v0.z;
+                const acx = v2.x - v0.x, acy = v2.y - v0.y, acz = v2.z - v0.z;
+                const nx = aby * acz - abz * acy;
+                const ny = abz * acx - abx * acz;
+                const nz = abx * acy - aby * acx;
+                const len = Math.hypot(nx, ny, nz) || 1;
+                const nzUnit = nz / len;
+                if (nzUnit > 0.5) {
+                    minX = Math.min(minX, v0.x, v1.x, v2.x);
+                    minY = Math.min(minY, v0.y, v1.y, v2.y);
+                    maxX = Math.max(maxX, v0.x, v1.x, v2.x);
+                    maxY = Math.max(maxY, v0.y, v1.y, v2.y);
+                }
+            }
+            if (!isFinite(minX) || !isFinite(minY)) {
+                geometry.computeBoundingBox();
+                const bbox = geometry.boundingBox;
+                minX = bbox.min.x; minY = bbox.min.y; maxX = bbox.max.x; maxY = bbox.max.y;
+            }
+            const sizeX = Math.max(1e-9, maxX - minX);
+            const sizeY = Math.max(1e-9, maxY - minY);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = pngImage.width;
+            canvas.height = pngImage.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(pngImage, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            const numFaces = positions.count / 3;
+            const colors = new Float32Array(positions.count * 3);
+
+            for (let faceIndex = 0; faceIndex < numFaces; faceIndex++) {
+                const i0 = faceIndex * 3;
+                const i1 = faceIndex * 3 + 1;
+                const i2 = faceIndex * 3 + 2;
+
+                const v0 = vertices[i0];
+                const v1 = vertices[i1];
+                const v2 = vertices[i2];
+                
+                const cx = (v0.x + v1.x + v2.x) / 3;
+                const cy = (v0.y + v1.y + v2.y) / 3;
+                const u = Math.max(0, Math.min(0.999999, (cx - minX) / sizeX));
+                const v = Math.max(0, Math.min(0.999999, (cy - minY) / sizeY));
+                const grid = selectedGridSize || pngImage?.width || 75;
+                const cellU = Math.floor(u * grid) + 0.5;
+                const cellV = Math.floor(v * grid) + 0.5;
+                const snappedU = cellU / grid;
+                const snappedV = cellV / grid;
+                const px = Math.floor(snappedU * (pngImage.width - 1));
+                const py = Math.floor((1 - snappedV) * (pngImage.height - 1));
+
+                const pixelIndex = (py * pngImage.width + px) * 4;
+                const r = imageData.data[pixelIndex] / 255;
+                const g = imageData.data[pixelIndex + 1] / 255;
+                const b = imageData.data[pixelIndex + 2] / 255;
+
+                for (let j = 0; j < 3; j++) {
+                    const vertexIndex = (i0 + j) * 3;
+                    colors[vertexIndex] = r;
+                    colors[vertexIndex + 1] = g;
+                    colors[vertexIndex + 2] = b;
+                }
+            }
+
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            currentMesh.material.vertexColors = true;
+            currentMesh.material.needsUpdate = true;
+            if ('flatShading' in currentMesh.material) {
+                currentMesh.material.flatShading = true;
+            }
+            geometry.computeVertexNormals();
+            geometry.attributes.color.needsUpdate = true;
+        }
+
+        function resetCamera() {
+            if (currentMesh) {
+                const box = new THREE.Box3().setFromObject(currentMesh);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(maxDim, maxDim, maxDim);
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+        }
+
+        function toggleWireframe() {
+            if (currentMesh) {
+                currentMesh.material.wireframe = !currentMesh.material.wireframe;
+            }
+        }
+
+        document.getElementById('stl-input').addEventListener('change', (e) => {
+            stlFile = e.target.files[0];
+            if (stlFile) {
+                document.getElementById('stl-upload-area').classList.add('has-file');
+                document.getElementById('stl-upload-text').textContent = stlFile.name;
+                loadSTL(stlFile);
+                checkFilesReady();
+                saveFileToDB(dbKey('stl'), new File([stlFile], stlFile.name, { type: stlFile.type }));
+            }
+        });
+
+        document.getElementById('png-input').addEventListener('change', (e) => {
+            pngFile = e.target.files[0];
+            if (pngFile) {
+                document.getElementById('png-upload-area').classList.add('has-file');
+                document.getElementById('png-upload-text').textContent = pngFile.name;
+                
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        rawUploadedImage = img;
+                        autoTuneSettingsFromImage(img);
+                        document.getElementById('contrast-slider').value = String(editorSettings.contrast);
+                        document.getElementById('brightness-slider').value = String(editorSettings.brightness);
+                        document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
+                        document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                        document.getElementById('png-preview-img').src = event.target.result;
+                        document.getElementById('png-preview').style.display = 'block';
+                        
+                        showEditorPanel();
+                        processImage();
+
+                        saveFileToDB(dbKey('png'), new File([pngFile], pngFile.name, { type: pngFile.type }));
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(pngFile);
+                
+                checkFilesReady();
+            }
+        });
+
+        function checkFilesReady() {
+            const ready = stlFile && pngFile;
+            document.getElementById('generate-obj-btn').disabled = !ready;
+        }
+
+        // Generate functions - Updated to use API_BASE_URL
+        async function generateFile(endpoint, filename, successMsg) {
+            if (!stlFile || !pngFile) return;
+
+            console.log(`Generating file from ${API_BASE_URL}${endpoint}...`);
+            showStatus('loading', '<span class="spinner"></span>Processing and colorizing your model...');
+            document.getElementById('generate-obj-btn').disabled = true;
+
+            const formData = new FormData();
+            formData.append('stl', stlFile);
+            formData.append('png', pngFile);
+            formData.append('grid_size', selectedGridSize);
+
+            try {
+                console.log('Sending request to backend...');
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    let errorMsg = 'Failed to generate file';
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.error || errorMsg;
+                    } catch (e) {
+                        errorMsg = await response.text();
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                console.log('Creating download...');
+                const blob = await response.blob();
+                console.log('Blob size:', blob.size);
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                showStatus('success', successMsg);
+                document.getElementById('generate-obj-btn').disabled = false;
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus('error', `❌ Error: ${error.message}. Please check your API URL: ${API_BASE_URL}`);
+                document.getElementById('generate-obj-btn').disabled = false;
+            }
+        }
+
+        document.getElementById('generate-obj-btn').addEventListener('click', () => {
+            generateFile('/generate-obj', 'colored_model.zip', '✅ Success! Your OBJ+MTL files have been downloaded as a ZIP.');
+        });
+
+        function showStatus(type, message) {
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.innerHTML = message;
+            statusMessage.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Initialize Three.js when page loads
+        window.addEventListener('load', initThree);
+
+        // Restore state and files on load
+        window.addEventListener('load', async () => {
+            loadSimpleState();
+
+            document.querySelectorAll('.grid-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.size) === selectedGridSize) {
+                    btn.classList.add('active');
+                }
+            });
+            document.getElementById('png-upload-subtext').textContent = `Will be resized to ${selectedGridSize}×${selectedGridSize} pixels`;
+
+            showEditorPanel();
+            await restoreForSize(selectedGridSize);
+        });
+    </script>
+</body>
+</html>
+
