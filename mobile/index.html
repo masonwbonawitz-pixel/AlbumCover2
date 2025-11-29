@@ -952,13 +952,6 @@
                     </div>
                     <input type="range" class="slider" id="tones-slider" min="2" max="4" step="1" value="4" />
                 </div>
-                <div class="slider-control">
-                    <div class="slider-label">
-                        <span>Denoise</span>
-                        <span id="denoise-value">0</span>
-                    </div>
-                    <input type="range" class="slider" id="denoise-slider" min="0" max="5" step="1" value="0" />
-                </div>
             </div>
 
             <!-- Painting (Collapsible) -->
@@ -1172,6 +1165,8 @@
                 
                 // Ensure 75×75 is selected by default
                 selectedGridSize = 75;
+                // Set noise reduction based on default grid size (75 = 0)
+                editorSettings.noiseReduction = 0;
                 
                 await loadImages();
                 await loadTextContent();
@@ -1596,7 +1591,7 @@
             tones: 4,
             blackPoint: 0,
             whitePoint: 255,
-            noiseReduction: 0
+            noiseReduction: 0  // Auto-set: 5 for 48x48, 0 for 75x75 and 96x96
         };
         // Crop variables
         let cropperVisible = false;
@@ -1764,8 +1759,6 @@
                         document.getElementById('brightness-slider').value = String(editorSettings.brightness);
                         document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
                         document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
-                        document.getElementById('denoise-slider').value = String(editorSettings.noiseReduction ?? 0);
-                        document.getElementById('denoise-value').textContent = String(editorSettings.noiseReduction ?? 0);
                         // Don't set preview image here - it will be set to processed version after processImage() runs
                         // document.getElementById('png-preview-img').src = ev.target.result;
                         // Show crop buttons when image is restored
@@ -2005,6 +1998,14 @@
             selectedGridSize = size;
             saveSimpleState();
             
+            // Set noise reduction based on grid size
+            // 48x48 (Normal) = 5, others (75, 96) = 0
+            if (size === 48) {
+                editorSettings.noiseReduction = 5;
+            } else {
+                editorSettings.noiseReduction = 0;
+            }
+            
             // Update button states
             document.querySelectorAll('.grid-btn').forEach(btn => {
                 btn.classList.remove('active');
@@ -2225,8 +2226,8 @@
             });
         }
 
-        // Efficient noise reduction that removes graininess while preserving edges
-        // Uses mode filtering (most common color) to group similar pixels and remove noise
+        // Fast non-blurring denoising using mode filter
+        // Only replaces isolated noise pixels, preserves all edges and details
         function applyNoiseReduction(imageData, strength) {
             if (strength <= 0) return;
             
@@ -2235,11 +2236,9 @@
             const height = imageData.height;
             const originalData = new Uint8ClampedArray(data);
             
-            // Window size based on strength (3x3, 5x5, 7x7, etc.)
-            const windowSize = 3 + (strength - 1) * 2; // 3, 5, 7, 9, 11
-            const halfWindow = Math.floor(windowSize / 2);
-            const windowArea = windowSize * windowSize;
-            const threshold = Math.max(2, Math.floor(windowArea * 0.25)); // Need at least 25% of pixels to match
+            // Small 3x3 window for speed - only process isolated noise pixels
+            const windowSize = 3;
+            const halfWindow = 1;
             
             // Process each pixel
             for (let y = 0; y < height; y++) {
@@ -2247,42 +2246,52 @@
                     const centerIdx = (y * width + x) * 4;
                     const centerColor = originalData[centerIdx];
                     
-                    // Collect colors in the neighborhood using Map for better performance
-                    const colorCounts = new Map();
+                    // Quick check: count how many neighbors match the center
+                    let matchingNeighbors = 0;
+                    let totalNeighbors = 0;
+                    const neighborColors = [];
                     
+                    // Sample 8 neighbors (3x3 minus center)
                     for (let dy = -halfWindow; dy <= halfWindow; dy++) {
                         for (let dx = -halfWindow; dx <= halfWindow; dx++) {
+                            if (dx === 0 && dy === 0) continue; // Skip center
+                            
                             const nx = x + dx;
                             const ny = y + dy;
                             
                             if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                                 const idx = (ny * width + nx) * 4;
-                                const color = originalData[idx];
-                                colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+                                const neighborColor = originalData[idx];
+                                neighborColors.push(neighborColor);
+                                totalNeighbors++;
+                                
+                                if (neighborColor === centerColor) {
+                                    matchingNeighbors++;
+                                }
                             }
                         }
                     }
                     
-                    // Find the most common color (mode) in the neighborhood
-                    let maxCount = 0;
-                    let dominantColor = centerColor;
-                    
-                    for (const [color, count] of colorCounts) {
-                        if (count > maxCount) {
-                            maxCount = count;
-                            dominantColor = color;
+                    // Only process if this pixel is likely noise (few matching neighbors)
+                    // This preserves edges and only fixes isolated noise
+                    if (matchingNeighbors < totalNeighbors * 0.3) {
+                        // Find most common color in neighborhood (mode)
+                        const colorCounts = {};
+                        for (const color of neighborColors) {
+                            colorCounts[color] = (colorCounts[color] || 0) + 1;
                         }
-                    }
-                    
-                    // Only replace if the dominant color is significantly more common
-                    // This preserves edges and only removes isolated noise pixels
-                    if (maxCount >= threshold) {
-                        // Check if current pixel is noise (different from dominant)
-                        const colorDiff = Math.abs(centerColor - dominantColor);
-                        // Only replace if pixel is significantly different (likely noise)
-                        // Lower threshold for higher strength to remove more noise
-                        const noiseThreshold = Math.max(5, 15 - strength * 2);
-                        if (colorDiff > noiseThreshold) {
+                        
+                        let maxCount = 0;
+                        let dominantColor = centerColor;
+                        for (const color in colorCounts) {
+                            if (colorCounts[color] > maxCount) {
+                                maxCount = colorCounts[color];
+                                dominantColor = parseInt(color);
+                            }
+                        }
+                        
+                        // Only replace if dominant color is clearly the majority
+                        if (maxCount >= totalNeighbors * 0.4) {
                             data[centerIdx] = dominantColor;
                             data[centerIdx + 1] = dominantColor;
                             data[centerIdx + 2] = dominantColor;
@@ -4461,20 +4470,6 @@
             processImage();
         });
 
-        // Denoise slider with debouncing for better performance
-        let denoiseTimeout;
-        document.getElementById('denoise-slider').addEventListener('input', (e) => {
-            const value = parseInt(e.target.value);
-            editorSettings.noiseReduction = value;
-            document.getElementById('denoise-value').textContent = value;
-            
-            // Debounce to avoid processing on every slider movement
-            clearTimeout(denoiseTimeout);
-            denoiseTimeout = setTimeout(() => {
-                processImage();
-            }, 150); // Wait 150ms after user stops moving slider
-        });
-
         // Initialize Three.js
         function initThree() {
             // Don't reinitialize if already initialized
@@ -5088,8 +5083,6 @@
                         document.getElementById('brightness-slider').value = String(editorSettings.brightness);
                         document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
                         document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
-                        document.getElementById('denoise-slider').value = String(editorSettings.noiseReduction ?? 0);
-                        document.getElementById('denoise-value').textContent = String(editorSettings.noiseReduction ?? 0);
                         // Don't set preview image here - it will be set to processed version after processImage() runs
                         // document.getElementById('png-preview-img').src = event.target.result;
                         // Show crop buttons when image is uploaded

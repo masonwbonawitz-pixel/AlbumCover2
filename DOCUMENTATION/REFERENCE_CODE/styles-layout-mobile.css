@@ -1,0 +1,86 @@
+/* EXACT CSS FROM MOBILE/INDEX.HTML - Mobile Layout Styles */
+/* Use these exact styles in React to ensure identical appearance */
+
+.main-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    max-width: 100vw;
+    overflow-x: hidden;
+    margin: 0 auto;
+}
+
+/* Viewer Panel - Top on Mobile */
+.viewer-panel {
+    flex: 1;
+    min-width: 0;
+    background: #FFFBF5;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 50vh;
+}
+
+/* Control Panel - Bottom on Mobile */
+.control-panel {
+    flex: 1;
+    min-width: 0;
+    background: #FFFBF5;
+    padding: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+.title {
+    font-size: 24px; /* Smaller on mobile */
+    font-weight: normal;
+    margin-bottom: 10px;
+    color: #E87D3E;
+    font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+    text-align: center;
+}
+
+.price {
+    font-size: 18px; /* Smaller on mobile */
+    color: #333333;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+    text-align: center;
+}
+
+.section {
+    margin-bottom: 20px; /* Less spacing on mobile */
+    width: 100%;
+}
+
+.section-label {
+    font-size: 14px; /* Smaller on mobile */
+    font-weight: normal;
+    color: #FF6B35;
+    margin-bottom: 12px;
+    font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+/* Canvas smaller on mobile */
+.editor-canvas {
+    max-width: 100%;
+    width: auto;
+    max-height: 400px; /* Smaller max height on mobile */
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    border: 2px solid #ddd;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    background: #ffffff;
+    display: block;
+    margin: 0 auto;
+}
+
