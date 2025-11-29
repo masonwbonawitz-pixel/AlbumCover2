@@ -1,0 +1,264 @@
+/* EXACT CSS FROM DESKTOP LAYOUT GUIDE - Desktop Layout Styles */
+
+.home-page {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #FFFBF5;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #FFFBF5;
+}
+
+.loading-spinner {
+  font-size: 18px;
+  color: #333;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.main-container {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
+  margin: 0 auto;
+}
+
+/* Left Panel - Viewer */
+.viewer-panel {
+  flex: 1;
+  min-width: 0;
+  background: #FFFBF5;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Editor Panel (Default View) */
+#editor-panel {
+  flex: 1;
+  padding: 20px 24px 20px 24px;
+  padding-right: 40px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #FFFBF5;
+  min-width: 0;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 24px;
+  font-weight: normal;
+  color: #E87D3E;
+  margin: 0;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.viewer-btn {
+  background: #E0E0E0;
+  border: 1px solid #333333;
+  padding: 10px 15px;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: none;
+  font-size: 14px;
+  transition: all 0.2s;
+  font-weight: normal;
+  color: #333333;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.viewer-btn:hover {
+  background: #d0d0d0;
+}
+
+/* Canvas Container */
+.editor-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  margin-bottom: 20px;
+  margin-top: 12px;
+  width: 100%;
+  flex: 1;
+}
+
+.canvas-wrapper {
+  text-align: center;
+  flex-shrink: 0;
+  margin-bottom: 20px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.canvas-wrapper > div:last-child {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.canvas-label {
+  font-size: 14px;
+  font-weight: normal;
+  margin-bottom: 10px;
+  color: #E87D3E;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+  text-align: center;
+  display: none; /* Initially hidden, shown when image loaded */
+}
+
+.canvas-label:not(:empty) {
+  display: block;
+}
+
+.editor-canvas {
+  max-width: 100%;
+  width: auto;
+  max-height: calc(100vh - 100px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 10px;
+  border: 2px solid #ddd;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  background: #ffffff !important;
+  display: block;
+  margin: 0 auto;
+  cursor: crosshair;
+}
+
+/* Canvas Controls - Positioned to the right */
+#processed-controls {
+  position: absolute;
+  top: 0;
+  left: calc(50% + 1px);
+  margin-left: 10px;
+  display: flex !important;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+#processed-controls button {
+  padding: 12px 16px;
+  font-size: 20px;
+  min-width: 44px;
+  min-height: 44px;
+  background: #E0E0E0;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+#processed-controls button:hover {
+  background: #d0d0d0;
+}
+
+/* 3D Canvas Container */
+#canvas-container {
+  flex: 1;
+  position: relative;
+  background: #FFF8F0;
+  border-right: 1px solid #e0e0e0;
+  min-height: 600px;
+  display: none; /* Hidden by default, shown when 3D view active */
+}
+
+#canvas-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#canvas-container.active {
+  display: block;
+}
+
+.viewer-controls {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+.viewer-btn.icon-only {
+  padding: 10px;
+  font-size: 18px;
+}
+
+/* Right Panel - Controls */
+.control-panel {
+  flex: 0 0 450px;
+  min-width: 450px;
+  width: 450px;
+  background: #FFFBF5;
+  padding: 40px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-left: 1px solid #e0e0e0;
+  height: 100vh;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: normal;
+  margin-bottom: 10px;
+  color: #E87D3E;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.price-subtitle {
+  font-size: 20px;
+  color: #333333;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.section {
+  margin-bottom: 30px;
+  width: 100%;
+}
+
+.section-label {
+  font-size: 16px;
+  font-weight: normal;
+  color: #FF6B35;
+  margin-bottom: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}

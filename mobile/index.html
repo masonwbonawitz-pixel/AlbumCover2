@@ -47,6 +47,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script src="/js/shopifyCart.js"></script>
     <style>
         * {
             margin: 0;
@@ -1133,8 +1134,54 @@
         console.log('🚀 Backend URL configured:', BACKEND_URL);
         console.log('🌐 Current hostname:', window.location.hostname);
         
-        // Shopify Configuration - UPDATE THIS WITH YOUR SHOPIFY STORE URL
-        const SHOPIFY_PRODUCT_URL = 'https://your-store.myshopify.com/products/3d-album-mosaic'; // UPDATE THIS
+        // Shopify Configuration
+        // Get Shopify store URL from URL parameters or config
+        const urlParams = new URLSearchParams(window.location.search);
+        const shopifyStore = urlParams.get('shop') || 'your-store.myshopify.com';
+        const SHOPIFY_STORE_URL = shopifyStore.startsWith('http') ? shopifyStore : `https://${shopifyStore}`;
+        const SHOPIFY_PRODUCT_URL = `${SHOPIFY_STORE_URL}/products/3d-album-mosaic`; // Fallback URL
+        
+        // Initialize Shopify Cart Service
+        let shopifyCart = null;
+        if (urlParams.get('shopify') === 'true' || ShopifyCartService) {
+            const storeUrl = ShopifyCartService.getStoreUrl() || SHOPIFY_STORE_URL;
+            shopifyCart = new ShopifyCartService(storeUrl);
+        }
+        
+        // Shopify Variant IDs - Get from backend API or environment
+        // These will be loaded from backend configuration
+        let shopifyVariants = {
+            48: null,  // Will be loaded from API
+            75: null,
+            96: null,
+            stand: null,
+            mounting: null
+        };
+        
+        // Load Shopify variant IDs from backend
+        async function loadShopifyVariants() {
+            try {
+                const response = await fetch(getApiUrl('/api/shopify/variants'));
+                if (response.ok) {
+                    const data = await response.json();
+                    shopifyVariants = {
+                        48: data.variant_48 || null,
+                        75: data.variant_75 || null,
+                        96: data.variant_96 || null,
+                        stand: data.variant_stand || null,
+                        mounting: data.variant_mounting || null
+                    };
+                    console.log('✅ Shopify variants loaded:', shopifyVariants);
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not load Shopify variants:', error);
+            }
+        }
+        
+        // Load variants on page load if in Shopify context
+        if (urlParams.get('shopify') === 'true') {
+            loadShopifyVariants();
+        }
 
         // Price management
         let prices = {};
@@ -5369,9 +5416,50 @@
                 
                 console.log('Order ID:', orderId);
                 
-                // Redirect to Shopify with order ID as parameter
-                const shopifyUrl = `${SHOPIFY_PRODUCT_URL}?order_id=${orderId}`;
-                window.location.href = shopifyUrl;
+                // Check if we're in Shopify context and have cart service
+                const isShopifyContext = urlParams.get('shopify') === 'true';
+                
+                if (isShopifyContext && shopifyCart) {
+                    // Add to Shopify cart using Cart API
+                    try {
+                        // Get variant ID for selected grid size
+                        const variantId = shopifyVariants[selectedGridSize];
+                        
+                        if (!variantId) {
+                            throw new Error(`Variant ID not found for grid size ${selectedGridSize}. Please configure Shopify variants.`);
+                        }
+                        
+                        // Prepare order data for cart
+                        const orderData = {
+                            orderId: orderId,
+                            variantId: variantId,
+                            gridSize: selectedGridSize,
+                            standSelected: standSelected,
+                            standVariantId: shopifyVariants.stand,
+                            mountingSelected: selectedAddons.mounting,
+                            mountingVariantId: shopifyVariants.mounting
+                        };
+                        
+                        // Add order to cart
+                        await shopifyCart.addOrderToCart(orderData);
+                        
+                        // Redirect to cart (not checkout, so they can add other products)
+                        shopifyCart.redirectToCart();
+                        
+                    } catch (cartError) {
+                        console.error('Error adding to Shopify cart:', cartError);
+                        // Fallback: redirect to product page with order ID
+                        showStatus('error', `⚠️ Added to cart failed: ${cartError.message}. Redirecting to product page...`);
+                        setTimeout(() => {
+                            const shopifyUrl = `${SHOPIFY_PRODUCT_URL}?order_id=${orderId}`;
+                            window.location.href = shopifyUrl;
+                        }, 2000);
+                    }
+                } else {
+                    // Not in Shopify context, use fallback redirect
+                    const shopifyUrl = `${SHOPIFY_PRODUCT_URL}?order_id=${orderId}`;
+                    window.location.href = shopifyUrl;
+                }
 
             } catch (error) {
                 console.error('Checkout error:', error);

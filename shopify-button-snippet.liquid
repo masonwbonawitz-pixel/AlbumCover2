@@ -1,0 +1,111 @@
+{% comment %}
+  "Create Your Own" Button Snippet for Shopify
+  Add this snippet to your product page template
+  
+  Usage:
+  {% render 'shopify-button-snippet' %}
+  
+  Or add directly to product.liquid:
+  {% include 'shopify-button-snippet' %}
+{% endcomment %}
+
+{% comment %} Configuration - Update these values {% endcomment %}
+{% assign builder_url = 'https://your-builder-domain.com' %}
+{% assign builder_mobile_url = 'https://your-builder-domain.com/mobile/' %}
+{% assign builder_desktop_url = 'https://your-builder-domain.com/desktop/' %}
+
+{% comment %} Detect if mobile device {% endcomment %}
+{% assign is_mobile = false %}
+{% if request.user_agent contains 'Mobile' or request.user_agent contains 'Android' or request.user_agent contains 'iPhone' %}
+  {% assign is_mobile = true %}
+{% endif %}
+
+<div class="album-builder-button-container" style="margin: 30px 0;">
+  <button 
+    type="button" 
+    class="album-builder-button" 
+    onclick="openAlbumBuilder()"
+    style="
+      width: 100%;
+      padding: 16px 24px;
+      background: #2d5016;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    "
+    onmouseover="this.style.background='#3a6b1f'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.15)';"
+    onmouseout="this.style.background='#2d5016'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.1)';"
+  >
+    🎨 Create Your Own Custom Design
+  </button>
+  
+  <p style="text-align: center; margin-top: 12px; color: #666; font-size: 14px;">
+    Design your custom 3D album cover mosaic
+  </p>
+</div>
+
+<script>
+  function openAlbumBuilder() {
+    // Get product and variant information
+    const productId = {{ product.id }};
+    const productTitle = {{ product.title | json }};
+    const variantId = document.querySelector('[name="id"]')?.value || '';
+    const variantTitle = document.querySelector('.product-form__selected-variant')?.textContent || '';
+    
+    // Build URL with Shopify context
+    const baseUrl = window.innerWidth <= 768 ? '{{ builder_mobile_url }}' : '{{ builder_desktop_url }}';
+    const params = new URLSearchParams({
+      shopify: 'true',
+      product_id: productId,
+      product_title: productTitle,
+      variant_id: variantId,
+      variant_title: variantTitle,
+      shop: '{{ shop.permanent_domain }}',
+      return_url: window.location.href
+    });
+    
+    const builderUrl = `${baseUrl}?${params.toString()}`;
+    
+    // Open in new window/tab
+    window.open(builderUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+  }
+  
+  // Alternative: Open in same window (uncomment if preferred)
+  // function openAlbumBuilder() {
+  //   const productId = {{ product.id }};
+  //   const baseUrl = window.innerWidth <= 768 ? '{{ builder_mobile_url }}' : '{{ builder_desktop_url }}';
+  //   const params = new URLSearchParams({
+  //     shopify: 'true',
+  //     product_id: productId,
+  //     shop: '{{ shop.permanent_domain }}',
+  //     return_url: window.location.href
+  //   });
+  //   window.location.href = `${baseUrl}?${params.toString()}`;
+  // }
+</script>
+
+<style>
+  .album-builder-button-container {
+    text-align: center;
+  }
+  
+  .album-builder-button:active {
+    transform: translateY(0) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+  }
+  
+  @media (max-width: 768px) {
+    .album-builder-button {
+      font-size: 16px !important;
+      padding: 14px 20px !important;
+    }
+  }
+</style>
+

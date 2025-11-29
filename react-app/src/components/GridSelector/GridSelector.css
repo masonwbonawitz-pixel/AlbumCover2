@@ -1,0 +1,38 @@
+.grid-section {
+  margin-bottom: 30px;
+}
+
+.grid-options {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  justify-content: center;
+  width: 100%;
+}
+
+.grid-btn {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid #333333;
+  background: #E0E0E0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: normal;
+  color: #333333;
+  transition: all 0.2s;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.grid-btn.active {
+  background: #333333;
+  color: #FFFFFF;
+  border-color: #333333;
+}
+
+.grid-btn:hover:not(.active) {
+  background: #d0d0d0;
+}
+

@@ -107,6 +107,41 @@ Complete checklist of all features:
 - React implementation examples
 - Synchronization strategy
 
+### [10-MOBILE-LAYOUT-COMPLETE-GUIDE.md](./10-MOBILE-LAYOUT-COMPLETE-GUIDE.md)
+**EXTREMELY DETAILED MOBILE LAYOUT!** Complete step-by-step guide:
+- Initial state before upload
+- Complete image upload flow
+- Every button click and what happens
+- Tool buttons system (Upload, Size, Adjust, Paint)
+- Editor panel - every interaction
+- 3D viewer - complete guide
+- Size panel - grid selection & cropping
+- Adjust panel - image adjustments
+- Paint panel - painting tools
+- Price section - checkout interface
+- Complete interaction map
+- CSS dimensions - exact measurements
+- Every visual element described
+
+### [11-DESKTOP-LAYOUT-COMPLETE-GUIDE.md](./11-DESKTOP-LAYOUT-COMPLETE-GUIDE.md)
+**EXTREMELY DETAILED DESKTOP LAYOUT!** Complete step-by-step guide:
+- Initial state on page load
+- Side-by-side layout structure
+- Left panel - Editor/3D viewer
+- Right panel - all controls
+- Image upload flow
+- Editor panel - every interaction
+- 3D viewer - desktop version
+- Control panel - all sections explained
+- Grid size selection
+- Image adjustments
+- Painting tools
+- Cropping interface
+- Price and checkout
+- Complete interaction map
+- CSS dimensions - exact measurements
+- Key differences from mobile
+
 ### [REFERENCE_CODE/](./REFERENCE_CODE/)
 **Exact code snippets!** Reference folder with working code:
 - Main app content loading code

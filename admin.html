@@ -1083,7 +1083,27 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
     <!-- Orders Tab -->
     <div id="orders-tab" class="tab-content">
         <div class="control-panel" style="width: 100%; min-width: 100%;">
-            <h2 style="margin-bottom: 20px;">Orders</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Orders</h2>
+                <button 
+                    id="sync-shopify-btn" 
+                    onclick="syncWithShopify()" 
+                    style="
+                        padding: 8px 16px;
+                        background: #2d5016;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 500;
+                    "
+                    onmouseover="this.style.background='#3a6b1f'"
+                    onmouseout="this.style.background='#2d5016'"
+                >
+                    🔄 Sync with Shopify
+                </button>
+            </div>
             <div class="bulk-actions" id="bulk-actions" style="display: none;">
                 <div class="select-all-container">
                     <input type="checkbox" id="select-all-orders" onchange="toggleSelectAll(this.checked)">
@@ -1189,6 +1209,79 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
             }
         }
 
+        // Sync orders with Shopify
+        async function syncWithShopify() {
+            const btn = document.getElementById('sync-shopify-btn');
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ Syncing...';
+            
+            try {
+                // Fetch orders from Shopify
+                const response = await fetch(getApiUrl('/api/shopify/orders?limit=100'));
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch Shopify orders: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const shopifyOrders = data.orders || [];
+                
+                // Merge with local orders
+                const localOrders = orders || [];
+                const shopifyOrderMap = {};
+                
+                // Create map of Shopify orders by order_id property
+                shopifyOrders.forEach(shopifyOrder => {
+                    shopifyOrder.line_items.forEach(item => {
+                        item.properties.forEach(prop => {
+                            if (prop.name === '_order_id' || prop.name === 'order_id') {
+                                shopifyOrderMap[prop.value] = shopifyOrder;
+                            }
+                        });
+                    });
+                });
+                
+                // Update local orders with Shopify data
+                localOrders.forEach(order => {
+                    const orderId = order.order_id;
+                    if (shopifyOrderMap[orderId]) {
+                        const shopifyOrder = shopifyOrderMap[orderId];
+                        order.shopify_order_id = shopifyOrder.id;
+                        order.shopify_order_name = shopifyOrder.name;
+                        order.shopify_customer_email = shopifyOrder.email;
+                        order.shopify_financial_status = shopifyOrder.financial_status;
+                        order.shopify_fulfillment_status = shopifyOrder.fulfillment_status;
+                        order.shopify_total_price = shopifyOrder.total_price;
+                        order.shopify_created_at = shopifyOrder.created_at;
+                    }
+                });
+                
+                // Save updated orders
+                const saveResponse = await fetch(getApiUrl('/admin/orders/api'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orders)
+                });
+                
+                if (!saveResponse.ok) {
+                    throw new Error('Failed to save synced orders');
+                }
+                
+                // Reload orders display
+                await loadOrders();
+                
+                showStatus('success', `✅ Synced ${shopifyOrders.length} Shopify orders`);
+            } catch (error) {
+                console.error('Error syncing with Shopify:', error);
+                showStatus('error', `❌ Failed to sync with Shopify: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
         // Display orders in the list
         function displayOrders() {
             const ordersList = document.getElementById('orders-list');
@@ -1216,8 +1309,15 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
                                        data-order-id="${order.order_id}"
                                        onchange="handleOrderCheckboxChange('${order.order_id}', this.checked)">
                                 <div>
-                                    <div class="order-id">Order #${order.order_id.substring(0, 8)} ${isCompleted ? '<span style="color: #2d5016; font-size: 12px;">✓ Completed</span>' : ''}</div>
+                                    <div class="order-id">
+                                        Order #${order.order_id.substring(0, 8)} 
+                                        ${isCompleted ? '<span style="color: #2d5016; font-size: 12px;">✓ Completed</span>' : ''}
+                                        ${order.shopify_order_name ? `<span style="color: #0066cc; font-size: 12px; margin-left: 8px;">🛒 ${order.shopify_order_name}</span>` : ''}
+                                    </div>
                                     <div class="order-date">${formattedDate}</div>
+                                    ${order.shopify_customer_email ? `<div style="font-size: 12px; color: #666; margin-top: 4px;">📧 ${order.shopify_customer_email}</div>` : ''}
+                                    ${order.shopify_financial_status ? `<div style="font-size: 12px; color: ${order.shopify_financial_status === 'paid' ? '#2d5016' : '#666'}; margin-top: 4px;">💰 ${order.shopify_financial_status}</div>` : ''}
+                                    ${order.shopify_order_id ? `<div style="font-size: 12px; margin-top: 4px;"><a href="https://${order.shopify_store_url || 'your-store.myshopify.com'}/admin/orders/${order.shopify_order_id}" target="_blank" style="color: #0066cc;">View in Shopify →</a></div>` : ''}
                                 </div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px;">

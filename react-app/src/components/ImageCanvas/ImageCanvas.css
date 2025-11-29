@@ -1,0 +1,62 @@
+.canvas-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.canvas-label {
+  font-size: 17px;
+  font-weight: normal;
+  margin-bottom: 10px;
+  color: #E87D3E;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+  text-align: center;
+}
+
+.editor-canvas {
+  max-width: 100%;
+  width: auto;
+  max-height: calc(100vh - 100px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 10px;
+  border: 2px solid #ddd;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  background: #ffffff !important;
+  display: block;
+  margin: 0 auto;
+  cursor: crosshair;
+}
+
+/* Mobile canvas - smaller */
+@media (max-width: 767px) {
+  .editor-canvas {
+    max-height: 400px;
+  }
+}
+
+.canvas-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: #666;
+}
+
+.placeholder-icon {
+  font-size: 80px;
+  opacity: 0.3;
+  margin-bottom: 20px;
+}
+
+.canvas-placeholder p {
+  font-size: 14px;
+  color: #999;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+

@@ -15,6 +15,31 @@ from flask_cors import CORS
 from PIL import Image
 import trimesh
 
+# Try to load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not installed, continue without it
+    pass
+
+# Import Shopify API wrapper
+try:
+    from shopify_api import get_shopify_api
+    SHOPIFY_API_AVAILABLE = True
+except ImportError:
+    SHOPIFY_API_AVAILABLE = False
+    print("⚠️  shopify_api.py not found")
+
+# Import webhook handlers
+try:
+    from webhook_handlers import handle_order_create, handle_order_paid
+    from shopify_api import get_shopify_api as get_shopify_api_for_webhook
+    WEBHOOK_HANDLERS_AVAILABLE = True
+except ImportError:
+    WEBHOOK_HANDLERS_AVAILABLE = False
+    print("⚠️  webhook_handlers.py not found")
+
 # Try both bindings; some environments publish lib3mf as 'lib3mf', others as 'py3mf'
 _three_mf = None
 for _modname in ("lib3mf", "py3mf"):
@@ -1316,6 +1341,183 @@ def upload_for_checkout():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/shopify/variants', methods=['GET'])
+def get_shopify_variants():
+    """Return Shopify variant IDs from environment variables"""
+    try:
+        variants = {
+            'variant_48': os.getenv('SHOPIFY_VARIANT_48'),
+            'variant_75': os.getenv('SHOPIFY_VARIANT_75'),
+            'variant_96': os.getenv('SHOPIFY_VARIANT_96'),
+            'variant_stand': os.getenv('SHOPIFY_VARIANT_STAND'),
+            'variant_mounting': os.getenv('SHOPIFY_VARIANT_MOUNTING'),
+            'store_url': os.getenv('SHOPIFY_STORE_URL')
+        }
+        
+        # Filter out None values
+        variants = {k: v for k, v in variants.items() if v}
+        
+        return jsonify(variants)
+    except Exception as e:
+        print(f"❌ Error getting Shopify variants: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/shopify/orders', methods=['GET'])
+def get_shopify_orders():
+    """Get orders from Shopify Admin API"""
+    if not SHOPIFY_API_AVAILABLE:
+        return jsonify({'error': 'Shopify API not available'}), 503
+    
+    try:
+        shopify_api = get_shopify_api()
+        if not shopify_api.is_configured():
+            return jsonify({'error': 'Shopify API not configured'}), 503
+        
+        limit = request.args.get('limit', 50, type=int)
+        status = request.args.get('status', None)
+        
+        orders = shopify_api.get_orders(limit=limit, status=status)
+        
+        # Convert to JSON-serializable format
+        orders_data = []
+        for order in orders:
+            orders_data.append({
+                'id': str(order.id),
+                'name': order.name,
+                'email': order.email if hasattr(order, 'email') else None,
+                'total_price': float(order.total_price) if hasattr(order, 'total_price') else 0,
+                'financial_status': order.financial_status if hasattr(order, 'financial_status') else None,
+                'fulfillment_status': order.fulfillment_status if hasattr(order, 'fulfillment_status') else None,
+                'created_at': order.created_at if hasattr(order, 'created_at') else None,
+                'line_items': [
+                    {
+                        'id': str(item.id),
+                        'title': item.title,
+                        'quantity': item.quantity,
+                        'price': float(item.price) if hasattr(item, 'price') else 0,
+                        'properties': [
+                            {'name': prop.name, 'value': prop.value}
+                            for prop in (item.properties if hasattr(item, 'properties') else [])
+                        ]
+                    }
+                    for item in (order.line_items if hasattr(order, 'line_items') else [])
+                ]
+            })
+        
+        return jsonify({'orders': orders_data})
+    except Exception as e:
+        print(f"❌ Error getting Shopify orders: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/shopify/order/<order_id>', methods=['GET'])
+def get_shopify_order(order_id):
+    """Get a specific order from Shopify"""
+    if not SHOPIFY_API_AVAILABLE:
+        return jsonify({'error': 'Shopify API not available'}), 503
+    
+    try:
+        shopify_api = get_shopify_api()
+        if not shopify_api.is_configured():
+            return jsonify({'error': 'Shopify API not configured'}), 503
+        
+        order = shopify_api.get_order(order_id)
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        
+        # Convert to JSON-serializable format
+        order_data = {
+            'id': str(order.id),
+            'name': order.name,
+            'email': order.email if hasattr(order, 'email') else None,
+            'total_price': float(order.total_price) if hasattr(order, 'total_price') else 0,
+            'financial_status': order.financial_status if hasattr(order, 'financial_status') else None,
+            'fulfillment_status': order.fulfillment_status if hasattr(order, 'fulfillment_status') else None,
+            'created_at': order.created_at if hasattr(order, 'created_at') else None,
+            'line_items': [
+                {
+                    'id': str(item.id),
+                    'title': item.title,
+                    'quantity': item.quantity,
+                    'price': float(item.price) if hasattr(item, 'price') else 0,
+                    'properties': [
+                        {'name': prop.name, 'value': prop.value}
+                        for prop in (item.properties if hasattr(item, 'properties') else [])
+                    ]
+                }
+                for item in (order.line_items if hasattr(order, 'line_items') else [])
+            ]
+        }
+        
+        return jsonify(order_data)
+    except Exception as e:
+        print(f"❌ Error getting Shopify order: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/webhooks/orders/create', methods=['POST'])
+def webhook_order_create():
+    """Handle Shopify order creation webhook"""
+    if not WEBHOOK_HANDLERS_AVAILABLE:
+        return jsonify({'error': 'Webhook handlers not available'}), 503
+    
+    try:
+        # Verify webhook signature
+        hmac_header = request.headers.get('X-Shopify-Hmac-Sha256')
+        if hmac_header:
+            shopify_api = get_shopify_api_for_webhook()
+            if not shopify_api.verify_webhook_signature(request.data, hmac_header):
+                print("❌ Invalid webhook signature")
+                return jsonify({'error': 'Invalid signature'}), 401
+        
+        # Get order data
+        order_data = request.get_json()
+        
+        # Process webhook
+        success = handle_order_create(order_data)
+        
+        if success:
+            return '', 200
+        else:
+            return jsonify({'error': 'Failed to process webhook'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error processing order create webhook: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/webhooks/orders/paid', methods=['POST'])
+def webhook_order_paid():
+    """Handle Shopify order paid webhook"""
+    if not WEBHOOK_HANDLERS_AVAILABLE:
+        return jsonify({'error': 'Webhook handlers not available'}), 503
+    
+    try:
+        # Verify webhook signature
+        hmac_header = request.headers.get('X-Shopify-Hmac-Sha256')
+        if hmac_header:
+            shopify_api = get_shopify_api_for_webhook()
+            if not shopify_api.verify_webhook_signature(request.data, hmac_header):
+                print("❌ Invalid webhook signature")
+                return jsonify({'error': 'Invalid signature'}), 401
+        
+        # Get order data
+        order_data = request.get_json()
+        
+        # Process webhook
+        success = handle_order_paid(order_data)
+        
+        if success:
+            return '', 200
+        else:
+            return jsonify({'error': 'Failed to process webhook'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error processing order paid webhook: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/admin')
 @app.route('/admin/prices')
 def admin_prices_page():
@@ -1771,9 +1973,35 @@ def download_order_file(order_id, filename):
     return send_file(file_path, as_attachment=True)
 
 
+def validate_shopify_credentials():
+    """Validate Shopify API credentials are configured"""
+    store_url = os.getenv('SHOPIFY_STORE_URL')
+    api_key = os.getenv('SHOPIFY_API_KEY')
+    api_secret = os.getenv('SHOPIFY_API_SECRET')
+    
+    if not store_url or not api_key or not api_secret:
+        print("⚠️  Shopify credentials not configured")
+        print("   Set SHOPIFY_STORE_URL, SHOPIFY_API_KEY, and SHOPIFY_API_SECRET in .env")
+        print("   See SHOPIFY_SETUP_GUIDE.md for instructions")
+        return False
+    
+    # Check if values are still placeholders
+    if 'your-store' in store_url or 'your_api_key' in api_key or 'your_api_secret' in api_secret:
+        print("⚠️  Shopify credentials appear to be placeholders")
+        print("   Please update .env with your actual credentials")
+        return False
+    
+    print("✅ Shopify credentials configured")
+    return True
+
+
 if __name__ == '__main__':
     print("🚀 Starting Album Cover 3D Color Mapper server...")
     print("📂 Open http://localhost:5000 in your browser")
     print("🔧 Admin price editor: http://localhost:5000/admin/prices")
+    
+    # Validate Shopify credentials if attempting to use Shopify features
+    validate_shopify_credentials()
+    
     app.run(debug=True, port=5000)
 

@@ -7,4 +7,6 @@ pillow==10.1.0
 numpy==1.26.2
 networkx==3.2.1
 gunicorn==21.2.0
+python-dotenv==1.0.0
+PyShopify==0.9.11
 

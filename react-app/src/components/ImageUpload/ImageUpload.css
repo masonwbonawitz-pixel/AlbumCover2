@@ -1,0 +1,44 @@
+.upload-section {
+  margin-bottom: 30px;
+}
+
+.upload-area {
+  border: 2px dashed #ddd;
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #fafafa;
+  margin-bottom: 15px;
+}
+
+.upload-area:hover {
+  border-color: #999;
+  background: #f5f5f5;
+}
+
+.upload-area.has-file {
+  border-color: #999;
+  background: #f5f5f5;
+}
+
+.upload-icon {
+  font-size: 40px;
+  margin-bottom: 10px;
+  opacity: 0.5;
+}
+
+.upload-text {
+  font-size: 14px;
+  color: #333333;
+  margin-bottom: 5px;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.upload-subtext {
+  font-size: 12px;
+  color: #333333;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+

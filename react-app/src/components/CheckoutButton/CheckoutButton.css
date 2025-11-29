@@ -1,0 +1,53 @@
+.checkout-section {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.view-3d-btn {
+  width: 100%;
+  padding: 16px 24px;
+  background: #333333;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.view-3d-btn:hover:not(:disabled) {
+  background: #1a1a1a;
+}
+
+.view-3d-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.checkout-btn {
+  width: 100%;
+  padding: 16px 24px;
+  background: #2d5016;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+  font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+}
+
+.checkout-btn:hover:not(:disabled) {
+  background: #1f3a0f;
+}
+
+.checkout-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+

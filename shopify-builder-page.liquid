@@ -1,0 +1,139 @@
+{% comment %}
+  Builder Page Template for Shopify
+  Create a new page in Shopify and assign this template to it
+  
+  Steps:
+  1. Go to Online Store → Pages → Add page
+  2. Title: "Create Your Custom Design"
+  3. Template: Select "page.album-builder" (this template)
+  4. Save and publish
+  5. Get the page URL and use it in your button snippet
+{% endcomment %}
+
+{% layout 'theme' %}
+
+<div class="album-builder-page">
+  <div class="builder-container" style="width: 100%; min-height: 100vh;">
+    {% comment %} Embed the builder using iframe {% endcomment %}
+    <iframe 
+      id="album-builder-iframe"
+      src="{{ section.settings.builder_url | default: 'https://your-builder-domain.com' }}?shopify=true&product_id={{ product.id | default: '' }}&shop={{ shop.permanent_domain }}"
+      style="
+        width: 100%;
+        min-height: 100vh;
+        border: none;
+        display: block;
+      "
+      allow="camera; microphone; fullscreen"
+      title="3D Album Cover Builder"
+    ></iframe>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Album Builder Page",
+  "settings": [
+    {
+      "type": "text",
+      "id": "builder_url",
+      "label": "Builder URL",
+      "default": "https://your-builder-domain.com",
+      "info": "URL of your album builder application"
+    },
+    {
+      "type": "checkbox",
+      "id": "open_in_new_window",
+      "label": "Open builder in new window",
+      "default": false
+    }
+  ]
+}
+{% endschema %}
+
+<script>
+  // Handle messages from iframe (builder)
+  window.addEventListener('message', function(event) {
+    // Verify origin for security
+    const allowedOrigins = [
+      'https://your-builder-domain.com',
+      'http://localhost:5000' // For development
+    ];
+    
+    if (!allowedOrigins.includes(event.origin)) {
+      return;
+    }
+    
+    // Handle different message types
+    if (event.data.type === 'builder-ready') {
+      console.log('Builder is ready');
+    }
+    
+    if (event.data.type === 'add-to-cart') {
+      // Handle add to cart from builder
+      const cartData = event.data.cartData;
+      addToShopifyCart(cartData);
+    }
+    
+    if (event.data.type === 'redirect-to-cart') {
+      // Redirect to Shopify cart
+      window.location.href = '/cart';
+    }
+  });
+  
+  // Function to add items to Shopify cart
+  function addToShopifyCart(cartData) {
+    const items = cartData.items || [];
+    
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items: items
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log('Items added to cart:', data);
+      // Redirect to cart
+      window.location.href = '/cart';
+    })
+    .catch(error => {
+      console.error('Error adding to cart:', error);
+      alert('Error adding items to cart. Please try again.');
+    });
+  }
+  
+  // Pass Shopify context to iframe
+  document.getElementById('album-builder-iframe').addEventListener('load', function() {
+    const iframe = this.contentWindow;
+    iframe.postMessage({
+      type: 'shopify-config',
+      shop: '{{ shop.permanent_domain }}',
+      productId: {{ product.id | default: 'null' }},
+      shopifyStore: '{{ shop.permanent_domain }}',
+      returnUrl: window.location.href
+    }, '*'); // In production, specify exact origin
+  });
+</script>
+
+<style>
+  .album-builder-page {
+    margin: 0;
+    padding: 0;
+  }
+  
+  .builder-container {
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Hide Shopify theme header/footer if needed */
+  .album-builder-page .shopify-section {
+    margin: 0;
+    padding: 0;
+  }
+</style>
+
