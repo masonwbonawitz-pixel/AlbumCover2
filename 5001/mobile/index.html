@@ -855,7 +855,7 @@
                     <div class="canvas-wrapper">
                         <div class="canvas-label" id="mobile-canvas-label" style="display: none;">Processed (Posterized)</div>
                         <div style="position: relative; display: inline-block; width: 100%;">
-                            <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1; cursor: crosshair;"></canvas>
+                            <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1; cursor: crosshair; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"></canvas>
                         </div>
                         <div style="display: flex; flex-direction: row; gap: 5px; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 0; width: 100%;">
                             <div style="display: flex; flex-direction: row; gap: 5px;">
@@ -2136,11 +2136,17 @@
         }
 
         async function show3DView() {
+            console.log('🎬 show3DView called');
+            console.log('   stlFile:', stlFile ? 'exists' : 'missing');
+            console.log('   currentMesh:', currentMesh ? 'exists' : 'missing');
+            console.log('   selectedGridSize:', selectedGridSize);
+            
             // Always ensure STL is loaded before showing 3D view
             if (!stlFile || !currentMesh) {
                 console.log('📦 Loading STL before showing 3D view...');
                 try {
                     await loadSTLFromServer(selectedGridSize);
+                    console.log('✅ STL loaded successfully');
                 } catch (error) {
                     console.error('❌ Failed to load STL:', error);
                     const placeholder = document.getElementById('three-placeholder');
@@ -2148,6 +2154,7 @@
                         placeholder.style.display = 'block';
                         placeholder.querySelector('div:last-child').textContent = `STL file not found for ${selectedGridSize}×${selectedGridSize} grid. Please upload via admin.`;
                     }
+                    alert('Failed to load 3D model. Please try again.');
                     return;
                 }
             }
@@ -2160,8 +2167,11 @@
                     placeholder.style.display = 'block';
                     placeholder.querySelector('div:last-child').textContent = `STL file not found for ${selectedGridSize}×${selectedGridSize} grid. Please upload via admin.`;
                 }
+                alert('3D model not available. Please ensure STL file is loaded.');
                 return;
             }
+            
+            console.log('✅ Mesh loaded, proceeding to show 3D view');
             
             // Hide placeholder before showing 3D view (mesh is loaded)
             const placeholder = document.getElementById('three-placeholder');
@@ -2209,8 +2219,21 @@
                 initThree();
             }
             
-            document.getElementById('editor-panel').style.display = 'none';
-            document.getElementById('canvas-container').style.display = 'block';
+            const editorPanel = document.getElementById('editor-panel');
+            const canvasContainer = document.getElementById('canvas-container');
+            
+            if (!editorPanel) {
+                console.error('❌ editor-panel not found');
+                return;
+            }
+            if (!canvasContainer) {
+                console.error('❌ canvas-container not found');
+                return;
+            }
+            
+            console.log('🔄 Switching to 3D view');
+            editorPanel.style.display = 'none';
+            canvasContainer.style.display = 'block';
             
             // Ensure Three.js canvas resizes correctly after becoming visible (wait a frame)
             requestAnimationFrame(() => {
@@ -4159,6 +4182,109 @@
             processedCanvas.addEventListener('mouseleave', () => {
                 if (isPainting) {
                     // Paint stroke finished - update undo/redo buttons
+                    updateUndoRedoButtons();
+                }
+                isPainting = false;
+                isDraggingPan = false;
+            });
+            
+            // MOBILE TOUCH EVENTS - Add touch support for mobile devices
+            processedCanvas.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                e.stopPropagation();
+                
+                if (!processedImageData) return;
+                
+                const touch = e.touches[0];
+                const rect = processedCanvas.getBoundingClientRect();
+                
+                if (zoomMode === 'zoom-in') {
+                    zoomToPoint(touch.clientX, touch.clientY, 1.3);
+                } else if (zoomMode === 'zoom-out') {
+                    zoomToPoint(touch.clientX, touch.clientY, 1.3);
+                } else if (!isPainting && processedZoom > 1.0) {
+                    // Start panning
+                    isDraggingPan = true;
+                    processedPanStartX = touch.clientX;
+                    processedPanStartY = touch.clientY;
+                    processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
+                    processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
+                } else if (!isDraggingPan) {
+                    // Start painting
+                    if (!isPainting) {
+                        savePaintState();
+                    }
+                    isPainting = true;
+                    
+                    const canvasX = touch.clientX - rect.left;
+                    const canvasY = touch.clientY - rect.top;
+                    const w = processedCanvas.width;
+                    const h = processedCanvas.height;
+                    
+                    const centerRelativeX = canvasX - w / 2;
+                    const centerRelativeY = canvasY - h / 2;
+                    const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
+                    const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
+                    const normalizedX = imageSpaceX + w / 2;
+                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
+                        redrawProcessedCanvas();
+                    }
+                }
+            });
+            
+            processedCanvas.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                e.stopPropagation();
+                
+                if (!processedImageData) return;
+                
+                const touch = e.touches[0];
+                const rect = processedCanvas.getBoundingClientRect();
+                
+                if (isDraggingPan && !isPainting) {
+                    // Pan the view
+                    const deltaX = touch.clientX - processedPanStartX;
+                    const deltaY = touch.clientY - processedPanStartY;
+                    const startOffsetX = parseFloat(processedCanvas.dataset.panStartOffsetX || 0);
+                    const startOffsetY = parseFloat(processedCanvas.dataset.panStartOffsetY || 0);
+                    
+                    processedZoomOffsetX = startOffsetX + deltaX;
+                    processedZoomOffsetY = startOffsetY + deltaY;
+                    constrainPanBounds(processedZoom);
+                    redrawProcessedCanvas();
+                } else if (isPainting && !isDraggingPan) {
+                    // Continue painting
+                    const canvasX = touch.clientX - rect.left;
+                    const canvasY = touch.clientY - rect.top;
+                    const w = processedCanvas.width;
+                    const h = processedCanvas.height;
+                    
+                    const centerRelativeX = canvasX - w / 2;
+                    const centerRelativeY = canvasY - h / 2;
+                    const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
+                    const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
+                    const normalizedX = imageSpaceX + w / 2;
+                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
+                        redrawProcessedCanvas();
+                    }
+                }
+            });
+            
+            processedCanvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                if (isPainting) {
+                    updateUndoRedoButtons();
+                }
+                isPainting = false;
+                isDraggingPan = false;
+            });
+            
+            processedCanvas.addEventListener('touchcancel', () => {
+                if (isPainting) {
                     updateUndoRedoButtons();
                 }
                 isPainting = false;
