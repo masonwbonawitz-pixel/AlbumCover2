@@ -2002,15 +2002,11 @@
                     // Small delay to ensure panel is visible first
                     setTimeout(() => {
                         if (rawUploadedImage) {
-                            // Make sure upload panel is visible for cropper
+                            // HIDE upload panel - only show upload on initial screen
                             const uploadPanel = document.getElementById('upload-panel');
                             if (uploadPanel) {
-                                uploadPanel.style.display = 'block';
-                                // Hide upload area and label, keep only cropper visible
-                                const uploadArea = document.getElementById('png-upload-area');
-                                const sectionLabel = uploadPanel.querySelector('.section-label');
-                                if (uploadArea) uploadArea.style.display = 'none';
-                                if (sectionLabel) sectionLabel.style.display = 'none';
+                                uploadPanel.style.display = 'none';
+                            }
                                 // Show crop buttons
                                 if (cropButtons) {
                                     cropButtons.style.display = 'block';
@@ -2147,19 +2143,57 @@
                 try {
                     await loadSTLFromServer(selectedGridSize);
                     console.log('✅ STL loaded successfully');
+                    
+                    // Wait a moment for mesh to be fully created
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                    // Check again after loading
+                    if (!currentMesh) {
+                        console.error('❌ Mesh not created after loading STL');
+                        // Try to load from cache as fallback
+                        try {
+                            const stlEntry = await loadFileFromDB(dbKey('stl', selectedGridSize));
+                            if (stlEntry && stlEntry.blob) {
+                                const cachedSTL = new File([stlEntry.blob], stlEntry.name || `${selectedGridSize}x${selectedGridSize}_grid.stl`, { 
+                                    type: stlEntry.type || 'application/octet-stream' 
+                                });
+                                stlFile = cachedSTL;
+                                await loadSTL(cachedSTL);
+                                console.log('✅ Loaded STL from cache');
+                            }
+                        } catch (cacheError) {
+                            console.error('❌ Cache load also failed:', cacheError);
+                        }
+                    }
                 } catch (error) {
                     console.error('❌ Failed to load STL:', error);
-                    const placeholder = document.getElementById('three-placeholder');
-                    if (placeholder) {
-                        placeholder.style.display = 'block';
-                        placeholder.querySelector('div:last-child').textContent = `STL file not found for ${selectedGridSize}×${selectedGridSize} grid. Please upload via admin.`;
+                    // Try cache as fallback
+                    try {
+                        const stlEntry = await loadFileFromDB(dbKey('stl', selectedGridSize));
+                        if (stlEntry && stlEntry.blob) {
+                            const cachedSTL = new File([stlEntry.blob], stlEntry.name || `${selectedGridSize}x${selectedGridSize}_grid.stl`, { 
+                                type: stlEntry.type || 'application/octet-stream' 
+                            });
+                            stlFile = cachedSTL;
+                            await loadSTL(cachedSTL);
+                            console.log('✅ Loaded STL from cache as fallback');
+                        } else {
+                            throw new Error('No STL in cache either');
+                        }
+                    } catch (cacheError) {
+                        console.error('❌ Cache load failed:', cacheError);
+                        const placeholder = document.getElementById('three-placeholder');
+                        if (placeholder) {
+                            placeholder.style.display = 'block';
+                            placeholder.querySelector('div:last-child').textContent = `STL file not found for ${selectedGridSize}×${selectedGridSize} grid. Please upload via admin.`;
+                        }
+                        alert('Failed to load 3D model. Please ensure STL files are uploaded via admin.');
+                        return;
                     }
-                    alert('Failed to load 3D model. Please try again.');
-                    return;
                 }
             }
             
-            // If still no mesh after loading, show error
+            // Final check - if still no mesh, show error
             if (!currentMesh) {
                 console.error('❌ Failed to load STL mesh. Cannot show 3D view.');
                 const placeholder = document.getElementById('three-placeholder');
@@ -2167,7 +2201,7 @@
                     placeholder.style.display = 'block';
                     placeholder.querySelector('div:last-child').textContent = `STL file not found for ${selectedGridSize}×${selectedGridSize} grid. Please upload via admin.`;
                 }
-                alert('3D model not available. Please ensure STL file is loaded.');
+                alert('3D model not available. Please ensure STL file is uploaded via admin.');
                 return;
             }
             
@@ -2567,15 +2601,11 @@
             // User is manually showing the cropper, so clear the manually hidden flag
             cropperManuallyHidden = false;
             
-            // Make upload panel visible but hide the upload area and label - only show cropper
+            // HIDE upload panel - only show upload on initial screen
             const uploadPanel = document.getElementById('upload-panel');
             if (uploadPanel) {
-                uploadPanel.style.display = 'block';
-                // Hide upload area and label, keep only cropper visible
-                const uploadArea = document.getElementById('png-upload-area');
-                const sectionLabel = uploadPanel.querySelector('.section-label');
-                if (uploadArea) uploadArea.style.display = 'none';
-                if (sectionLabel) sectionLabel.style.display = 'none';
+                uploadPanel.style.display = 'none';
+            }
             }
             
             // Make sure preview image is visible
@@ -5204,13 +5234,10 @@
                         canvasContainer.style.display = 'none';
                     }
                     
-                    // SHOW upload panel to display file info
+                    // HIDE upload panel - only show upload button on initial screen
                     const uploadPanel = document.getElementById('upload-panel');
                     if (uploadPanel) {
-                        uploadPanel.style.display = 'block';
-                        console.log('✅ Upload panel displayed');
-                    } else {
-                        console.error('❌ Upload panel element not found!');
+                        uploadPanel.style.display = 'none';
                     }
                     
                     // Force a repaint to ensure visibility
@@ -5694,15 +5721,11 @@
                 
                 // Show cropper if image is uploaded (always show when size panel is open)
                 setTimeout(() => {
-                    // Make sure upload panel is visible for cropper
+                    // HIDE upload panel - only show upload on initial screen
                     const uploadPanel = document.getElementById('upload-panel');
                     if (uploadPanel) {
-                        uploadPanel.style.display = 'block';
-                        // Hide upload area and label, keep only cropper visible
-                        const uploadArea = document.getElementById('png-upload-area');
-                        const sectionLabel = uploadPanel.querySelector('.section-label');
-                        if (uploadArea) uploadArea.style.display = 'none';
-                        if (sectionLabel) sectionLabel.style.display = 'none';
+                        uploadPanel.style.display = 'none';
+                    }
                         // Show crop buttons
                         const cropButtons = document.getElementById('crop-buttons');
                         if (cropButtons) {
