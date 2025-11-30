@@ -4801,8 +4801,37 @@
             }
         }
 
+        // Function to show file picker (defined globally so it can be called immediately)
+        function showFilePicker() {
+            const now = Date.now();
+            if (now - lastFileInputTrigger < FILE_INPUT_DEBOUNCE_MS) {
+                return;
+            }
+            lastFileInputTrigger = now;
+            
+            const fileInput = document.getElementById('png-input');
+            if (!fileInput) {
+                console.error('File input not found!');
+                return;
+            }
+            
+            console.log('Opening file picker...');
+            
+            // Direct click method - most reliable on mobile
+            try {
+                fileInput.focus();
+                // Use setTimeout to ensure focus happens first
+                setTimeout(() => {
+                    fileInput.click();
+                }, 50);
+            } catch (e) {
+                console.error('Failed to open file picker:', e);
+            }
+        }
+
         // Add explicit touch/click handlers for upload buttons (mobile compatibility)
-        window.addEventListener('DOMContentLoaded', () => {
+        // Use both DOMContentLoaded and immediate execution
+        function attachUploadHandlers() {
             const fileInput = document.getElementById('png-input');
             if (!fileInput) {
                 console.error('File input not found!');
@@ -4820,57 +4849,23 @@
             fileInput.style.pointerEvents = 'none';
             fileInput.style.zIndex = '-1';
 
-            // Function to show file picker
-            function showFilePicker() {
-                const now = Date.now();
-                if (now - lastFileInputTrigger < FILE_INPUT_DEBOUNCE_MS) {
-                    return;
-                }
-                lastFileInputTrigger = now;
-                
-                console.log('Opening file picker...');
-                
-                // Create a temporary click event
-                const clickEvent = new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                });
-                
-                // Try multiple methods to trigger file picker
-                try {
-                    // Method 1: Direct click
-                    fileInput.focus();
-                    fileInput.click();
-                } catch (e) {
-                    console.error('Method 1 failed:', e);
-                    try {
-                        // Method 2: Dispatch event
-                        fileInput.dispatchEvent(clickEvent);
-                    } catch (e2) {
-                        console.error('Method 2 failed:', e2);
-                        // Method 3: Use label click
-                        const label = document.querySelector('label[for="png-input"]');
-                        if (label) {
-                            label.click();
-                        }
-                    }
-                }
-            }
-
             // Handler for initial upload box
             const initialUploadBox = document.getElementById('initial-upload-box');
             if (initialUploadBox) {
                 // Remove the for attribute to prevent default label behavior
                 initialUploadBox.removeAttribute('for');
                 
-                initialUploadBox.addEventListener('touchstart', (e) => {
+                // Remove existing listeners first
+                const newBox = initialUploadBox.cloneNode(true);
+                initialUploadBox.parentNode.replaceChild(newBox, initialUploadBox);
+                
+                newBox.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
                 }, { passive: false });
                 
-                initialUploadBox.addEventListener('click', (e) => {
+                newBox.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
@@ -4883,13 +4878,17 @@
                 // Remove the for attribute
                 uploadBtn.removeAttribute('for');
                 
-                uploadBtn.addEventListener('touchstart', (e) => {
+                // Remove existing listeners first
+                const newBtn = uploadBtn.cloneNode(true);
+                uploadBtn.parentNode.replaceChild(newBtn, uploadBtn);
+                
+                newBtn.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
                 }, { passive: false });
                 
-                uploadBtn.addEventListener('click', (e) => {
+                newBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
@@ -4902,19 +4901,34 @@
                 // Remove the for attribute
                 uploadArea.removeAttribute('for');
                 
-                uploadArea.addEventListener('touchstart', (e) => {
+                // Remove existing listeners first
+                const newArea = uploadArea.cloneNode(true);
+                uploadArea.parentNode.replaceChild(newArea, uploadArea);
+                
+                newArea.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
                 }, { passive: false });
                 
-                uploadArea.addEventListener('click', (e) => {
+                newArea.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     showFilePicker();
                 });
             }
-        });
+        }
+
+        // Try to attach immediately
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', attachUploadHandlers);
+        } else {
+            // DOM already loaded, attach immediately
+            attachUploadHandlers();
+        }
+        
+        // Also try after a short delay to ensure everything is ready
+        setTimeout(attachUploadHandlers, 100);
 
         document.getElementById('png-input').addEventListener('change', async (e) => {
             // Show upload section when file is selected

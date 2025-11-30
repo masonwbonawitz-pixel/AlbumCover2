@@ -1573,41 +1573,40 @@ def webhook_order_paid():
 def admin_prices_page():
     """Serve admin price editor HTML page"""
     try:
-        # Try multiple possible paths
-        possible_paths = [
-            os.path.join(os.path.dirname(__file__), 'admin.html'),
-            os.path.join(os.getcwd(), 'admin.html'),
-            'admin.html',
-            '/app/admin.html'
-        ]
+        # Get the directory where server.py is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        admin_path = os.path.join(script_dir, 'admin.html')
         
-        admin_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                admin_path = path
-                break
-        
-        if not admin_path:
-            # Debug info
-            current_dir = os.getcwd()
-            script_dir = os.path.dirname(__file__)
-            files_in_script_dir = os.listdir(script_dir) if os.path.exists(script_dir) else []
-            files_in_current_dir = os.listdir(current_dir) if os.path.exists(current_dir) else []
-            
-            return jsonify({
-                'error': 'Admin file not found',
-                'debug': {
-                    'script_dir': script_dir,
-                    'current_dir': current_dir,
-                    'files_in_script_dir': files_in_script_dir,
-                    'files_in_current_dir': files_in_current_dir,
-                    'tried_paths': possible_paths
-                }
-            }), 404
+        # Check if file exists
+        if not os.path.exists(admin_path):
+            # Try current working directory
+            admin_path = os.path.join(os.getcwd(), 'admin.html')
+            if not os.path.exists(admin_path):
+                # Return helpful error with debug info
+                current_dir = os.getcwd()
+                script_dir_files = os.listdir(script_dir) if os.path.exists(script_dir) else []
+                current_dir_files = os.listdir(current_dir) if os.path.exists(current_dir) else []
+                
+                return jsonify({
+                    'error': 'Admin file not found',
+                    'message': 'admin.html file is missing',
+                    'debug': {
+                        'script_dir': script_dir,
+                        'current_dir': current_dir,
+                        'script_dir_files': script_dir_files[:20],  # Limit to first 20
+                        'current_dir_files': current_dir_files[:20],
+                        'admin_path_attempted': os.path.join(script_dir, 'admin.html')
+                    },
+                    'help': 'Make sure admin.html is in the same directory as server.py'
+                }), 404
         
         return send_file(admin_path, mimetype='text/html')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 
 @app.route('/admin/prices/api', methods=['GET', 'POST'])
