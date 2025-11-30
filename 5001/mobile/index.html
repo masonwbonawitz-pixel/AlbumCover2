@@ -1015,7 +1015,7 @@
                     <div class="btn-text">Paint</div>
                 </button>
             </div>
-            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" capture="environment" style="display: none;" />
+            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" style="display: none;" />
         </div>
 
             <!-- Price Display Section -->
@@ -4848,16 +4848,54 @@
             const uploadBtn = document.getElementById('upload-btn');
             const uploadBtnInput = document.getElementById('png-input-upload-btn');
             if (uploadBtn && uploadBtnInput) {
+                // Ensure overlay input is properly positioned and clickable
+                uploadBtnInput.style.position = 'absolute';
+                uploadBtnInput.style.top = '0';
+                uploadBtnInput.style.left = '0';
+                uploadBtnInput.style.width = '100%';
+                uploadBtnInput.style.height = '100%';
+                uploadBtnInput.style.opacity = '0';
+                uploadBtnInput.style.cursor = 'pointer';
+                uploadBtnInput.style.zIndex = '10';
+                uploadBtnInput.style.pointerEvents = 'auto';
+                
                 // Connect the overlay input to the main input
                 uploadBtnInput.addEventListener('change', (e) => {
+                    console.log('Overlay input file selected:', e.target.files);
                     // Transfer the file to the main input
                     const mainInput = document.getElementById('png-input');
                     if (mainInput && e.target.files && e.target.files.length > 0) {
-                        // Create a new FileList-like object and trigger change on main input
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.items.add(e.target.files[0]);
-                        mainInput.files = dataTransfer.files;
-                        mainInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        try {
+                            // Create a new FileList-like object and trigger change on main input
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(e.target.files[0]);
+                            mainInput.files = dataTransfer.files;
+                            
+                            // Trigger change event on main input to process the file
+                            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+                            mainInput.dispatchEvent(changeEvent);
+                            console.log('File synced to main input and change event triggered');
+                        } catch (error) {
+                            console.error('Error syncing file to main input:', error);
+                            // Fallback: directly trigger the file processing
+                            if (typeof pngFile !== 'undefined') {
+                                pngFile = e.target.files[0];
+                                // Manually trigger the file processing logic
+                                const event = { target: { files: [pngFile] } };
+                                if (typeof document !== 'undefined' && document.getElementById('png-input')) {
+                                    document.getElementById('png-input').dispatchEvent(new Event('change', { bubbles: true }));
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Also handle click events to ensure it's accessible
+                uploadBtn.addEventListener('click', (e) => {
+                    // If click didn't hit the input, trigger it manually
+                    if (e.target === uploadBtn || e.target.closest('.btn-icon') || e.target.closest('.btn-text')) {
+                        e.preventDefault();
+                        uploadBtnInput.click();
                     }
                 });
             }
