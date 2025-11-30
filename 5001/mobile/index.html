@@ -1014,7 +1014,7 @@
                     <div class="btn-text">Paint</div>
                 </button>
             </div>
-            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" />
+            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden;" />
         </div>
 
             <!-- Price Display Section -->
@@ -4759,7 +4759,16 @@
             
             const fileInput = document.getElementById('png-input');
             if (fileInput) {
+                // Ensure file input is accessible
+                fileInput.style.position = 'absolute';
+                fileInput.style.width = '1px';
+                fileInput.style.height = '1px';
+                fileInput.style.opacity = '0';
+                fileInput.style.pointerEvents = 'auto';
+                
                 // Use direct click (works on all mobile browsers)
+                // For iOS, we need to ensure the input is in the DOM and visible
+                fileInput.focus();
                 fileInput.click();
             }
         }
