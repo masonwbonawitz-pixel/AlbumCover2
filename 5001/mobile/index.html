@@ -997,10 +997,11 @@
             
             <!-- Top Action Buttons -->
             <div class="top-action-buttons" id="action-buttons-container" style="display: none;">
-                <label for="png-input" class="top-action-btn" id="upload-btn" style="cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;">
+                <div class="top-action-btn" id="upload-btn" style="cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; position: relative;">
                     <div class="btn-icon">↑</div>
                     <div class="btn-text">Upload</div>
-                </label>
+                    <input type="file" id="png-input-upload-btn" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" capture="environment" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;" />
+                </div>
                 <button class="top-action-btn" id="size-btn" onclick="togglePanel('size')">
                     <div class="btn-icon">□</div>
                     <div class="btn-text">Size</div>
@@ -1014,7 +1015,7 @@
                     <div class="btn-text">Paint</div>
                 </button>
             </div>
-            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" capture="environment" />
+            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" capture="environment" style="display: none;" />
         </div>
 
             <!-- Price Display Section -->
@@ -4801,8 +4802,8 @@
             }
         }
 
-        // Function to show file picker (defined globally so it can be called immediately)
-        function showFilePicker() {
+        // Simple, direct file picker trigger - works on all mobile browsers
+        function triggerFileInput() {
             const now = Date.now();
             if (now - lastFileInputTrigger < FILE_INPUT_DEBOUNCE_MS) {
                 return;
@@ -4815,120 +4816,75 @@
                 return;
             }
             
-            console.log('Opening file picker...');
-            
-            // Direct click method - most reliable on mobile
-            try {
-                fileInput.focus();
-                // Use setTimeout to ensure focus happens first
-                setTimeout(() => {
-                    fileInput.click();
-                }, 50);
-            } catch (e) {
-                console.error('Failed to open file picker:', e);
-            }
+            // Direct click - most reliable method
+            fileInput.click();
         }
 
-        // Add explicit touch/click handlers for upload buttons (mobile compatibility)
-        // Use both DOMContentLoaded and immediate execution
-        function attachUploadHandlers() {
+        // Attach handlers when DOM is ready
+        function setupUploadHandlers() {
             const fileInput = document.getElementById('png-input');
             if (!fileInput) {
-                console.error('File input not found!');
+                console.error('File input not found during setup!');
                 return;
             }
 
-            // Ensure file input is accessible but hidden
-            fileInput.style.position = 'absolute';
-            fileInput.style.top = '0';
-            fileInput.style.left = '0';
-            fileInput.style.width = '1px';
-            fileInput.style.height = '1px';
-            fileInput.style.opacity = '0';
-            fileInput.style.overflow = 'hidden';
-            fileInput.style.pointerEvents = 'none';
-            fileInput.style.zIndex = '-1';
-
-            // Handler for initial upload box
+            // Keep labels with 'for' attribute - it works better on mobile
+            // Just add click handlers as backup
+            
+            // Initial upload box
             const initialUploadBox = document.getElementById('initial-upload-box');
             if (initialUploadBox) {
-                // Remove the for attribute to prevent default label behavior
-                initialUploadBox.removeAttribute('for');
-                
-                // Remove existing listeners first
-                const newBox = initialUploadBox.cloneNode(true);
-                initialUploadBox.parentNode.replaceChild(newBox, initialUploadBox);
-                
-                newBox.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
-                }, { passive: false });
-                
-                newBox.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
+                initialUploadBox.addEventListener('click', (e) => {
+                    // Let the label handle it, but also trigger manually as backup
+                    setTimeout(() => {
+                        if (!fileInput.files || fileInput.files.length === 0) {
+                            triggerFileInput();
+                        }
+                    }, 100);
                 });
             }
 
-            // Handler for upload button in toolbar
+            // Upload button in toolbar - use the overlay input
             const uploadBtn = document.getElementById('upload-btn');
-            if (uploadBtn) {
-                // Remove the for attribute
-                uploadBtn.removeAttribute('for');
-                
-                // Remove existing listeners first
-                const newBtn = uploadBtn.cloneNode(true);
-                uploadBtn.parentNode.replaceChild(newBtn, uploadBtn);
-                
-                newBtn.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
-                }, { passive: false });
-                
-                newBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
+            const uploadBtnInput = document.getElementById('png-input-upload-btn');
+            if (uploadBtn && uploadBtnInput) {
+                // Connect the overlay input to the main input
+                uploadBtnInput.addEventListener('change', (e) => {
+                    // Transfer the file to the main input
+                    const mainInput = document.getElementById('png-input');
+                    if (mainInput && e.target.files && e.target.files.length > 0) {
+                        // Create a new FileList-like object and trigger change on main input
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(e.target.files[0]);
+                        mainInput.files = dataTransfer.files;
+                        mainInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                 });
             }
 
-            // Handler for upload area in panel
+            // Upload area in panel
             const uploadArea = document.getElementById('png-upload-area');
             if (uploadArea) {
-                // Remove the for attribute
-                uploadArea.removeAttribute('for');
-                
-                // Remove existing listeners first
-                const newArea = uploadArea.cloneNode(true);
-                uploadArea.parentNode.replaceChild(newArea, uploadArea);
-                
-                newArea.addEventListener('touchstart', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
-                }, { passive: false });
-                
-                newArea.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showFilePicker();
+                uploadArea.addEventListener('click', (e) => {
+                    // Let the label handle it, but also trigger manually as backup
+                    setTimeout(() => {
+                        if (!fileInput.files || fileInput.files.length === 0) {
+                            triggerFileInput();
+                        }
+                    }, 100);
                 });
             }
         }
 
-        // Try to attach immediately
+        // Setup handlers
         if (document.readyState === 'loading') {
-            window.addEventListener('DOMContentLoaded', attachUploadHandlers);
+            document.addEventListener('DOMContentLoaded', setupUploadHandlers);
         } else {
-            // DOM already loaded, attach immediately
-            attachUploadHandlers();
+            setupUploadHandlers();
         }
         
-        // Also try after a short delay to ensure everything is ready
-        setTimeout(attachUploadHandlers, 100);
+        // Also setup after a delay to ensure everything is ready
+        setTimeout(setupUploadHandlers, 500);
 
         document.getElementById('png-input').addEventListener('change', async (e) => {
             // Show upload section when file is selected
