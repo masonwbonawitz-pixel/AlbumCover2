@@ -7,13 +7,6 @@
     <script>
         // Redirect desktop devices to desktop version
         (function() {
-            // If we're on /mobile route, don't redirect (allow testing on desktop)
-            const isMobileRoute = window.location.pathname.startsWith('/mobile');
-            if (isMobileRoute) {
-                console.log('📱 On /mobile route - allowing desktop access for testing');
-                return; // Stay on mobile version even on desktop
-            }
-            
             // Check URL parameters first (for testing)
             const urlParams = new URLSearchParams(window.location.search);
             const forceMobile = urlParams.get('mobile') === 'true';
@@ -1129,15 +1122,9 @@
 
     <script>
         // Backend URL Configuration
-        // Detect if we're on /mobile route - if so, use same origin
-        const isMobileRoute = window.location.pathname.startsWith('/mobile');
-        const isLocal = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-        
-        const BACKEND_URL = isLocal
+        const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
             ? 'http://localhost:5001'  // Local development
-            : (isMobileRoute 
-                ? window.location.origin  // Same origin if on /mobile route
-                : 'https://rize-albums-backend.onrender.com'); // Production (Render)
+            : 'https://rize-albums-backend.onrender.com'; // Production (Render)
         
         // Helper function to get API URL
         function getApiUrl(path) {
@@ -5036,10 +5023,23 @@
                     // PROCESS IMAGE
                     processImage();
                     
-                    // SHOW EDITOR PANEL IMMEDIATELY - this is the key step
-                    showEditorPanel();
+                    // SHOW EDITOR PANEL INLINE (no screen switch) - show on same screen
+                    const editorPanel = document.getElementById('editor-panel');
+                    const canvasContainer = document.getElementById('canvas-container');
+                    if (editorPanel) {
+                        editorPanel.style.display = 'block';
+                    }
+                    if (canvasContainer) {
+                        canvasContainer.style.display = 'none';
+                    }
                     
-                    console.log('Editor panel shown');
+                    // SHOW upload panel to display file info
+                    const uploadPanel = document.getElementById('upload-panel');
+                    if (uploadPanel) {
+                        uploadPanel.style.display = 'block';
+                    }
+                    
+                    console.log('Editor panel shown inline (no screen switch)');
                     
                     // Save to IndexedDB
                     try {
