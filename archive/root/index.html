@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Album Cover Mosaic Builder</title>
+    <script>
+        // Device detection and automatic redirect
+        (function() {
+            // Check URL parameters first (for testing)
+            const urlParams = new URLSearchParams(window.location.search);
+            const forceMobile = urlParams.get('mobile') === 'true';
+            const forceDesktop = urlParams.get('desktop') === 'true';
+            
+            if (forceMobile) {
+                window.location.href = '/mobile/';
+                return;
+                }
+            
+            if (forceDesktop) {
+                window.location.href = '/desktop/';
+                return;
+                    }
+
+            // Detect if device is mobile/tablet
+            function isMobileDevice() {
+                // Check screen width
+                if (window.innerWidth <= 1024) {
+                    return true;
+        }
+
+                // Check user agent
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            }
+            
+            // Redirect based on device
+            if (isMobileDevice()) {
+                window.location.href = '/mobile/';
+            } else {
+                window.location.href = '/desktop/';
+                }
+        })();
+    </script>
+</head>
+<body>
+    <div style="display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="text-align: center;">
+            <p>Loading...</p>
+            <p style="font-size: 14px; color: #666; margin-top: 10px;">Redirecting to the appropriate view...</p>
+        </div>
+    </div>
+</body>
+</html>

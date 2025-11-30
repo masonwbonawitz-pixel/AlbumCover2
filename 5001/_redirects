@@ -1,0 +1,11 @@
+# Netlify redirects file
+# This ensures proper routing for mobile and desktop views
+
+# Mobile route
+/mobile/* /mobile/index.html 200
+
+# Desktop route  
+/desktop/* /desktop.html 200
+
+# Root redirects handled by index.html JavaScript
+

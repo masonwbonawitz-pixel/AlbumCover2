@@ -1,0 +1,14 @@
+[
+  {
+    "order_id": "840802e7-687f-4c5a-838f-c797cd05ec6c",
+    "timestamp": "2025-11-29T22:38:21.823240",
+    "grid_size": 48,
+    "dimensions": "48\u00d748",
+    "base_price": 29.99,
+    "stand_selected": false,
+    "mounting_selected": false,
+    "total_price": 29.99,
+    "addons": [],
+    "completed": false
+  }
+]
