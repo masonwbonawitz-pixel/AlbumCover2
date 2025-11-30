@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Album Cover Mosaic Builder</title>
     <script>
+        /* ARCHIVED CODE - Automatic redirect disabled per user request
+         * To re-enable: uncomment the code below
+         * 
         // Redirect desktop devices to desktop version
         (function() {
             // Check URL parameters first (for testing)
@@ -36,6 +39,7 @@
                 window.location.href = '/desktop/';
             }
         })();
+        */
         
         // Immediately scroll to top when page loads (mobile optimization)
         if ('scrollRestoration' in history) {
@@ -5023,60 +5027,35 @@
                     // PROCESS IMAGE
                     processImage();
                     
-                    // FORCE HIDE initial upload box (do this multiple times to ensure it stays hidden)
-                    const initialUploadBox = document.getElementById('initial-upload-box');
-                    if (initialUploadBox) {
-                        initialUploadBox.style.display = 'none';
-                        initialUploadBox.style.visibility = 'hidden';
-                        initialUploadBox.style.height = '0';
-                        initialUploadBox.style.margin = '0';
-                        initialUploadBox.style.padding = '0';
-                    }
-                    
                     // SHOW EDITOR PANEL INLINE (no screen switch) - show on same screen
                     const editorPanel = document.getElementById('editor-panel');
                     const canvasContainer = document.getElementById('canvas-container');
-                    const viewerPanel = document.querySelector('.viewer-panel');
-                    
                     if (editorPanel) {
                         editorPanel.style.display = 'block';
                         editorPanel.style.visibility = 'visible';
-                        editorPanel.style.opacity = '1';
+                        console.log('✅ Editor panel displayed');
+                    } else {
+                        console.error('❌ Editor panel element not found!');
                     }
                     if (canvasContainer) {
                         canvasContainer.style.display = 'none';
-                    }
-                    if (viewerPanel) {
-                        viewerPanel.style.display = 'block';
-                        viewerPanel.style.visibility = 'visible';
                     }
                     
                     // SHOW upload panel to display file info
                     const uploadPanel = document.getElementById('upload-panel');
                     if (uploadPanel) {
                         uploadPanel.style.display = 'block';
-                        uploadPanel.style.visibility = 'visible';
+                        console.log('✅ Upload panel displayed');
+                    } else {
+                        console.error('❌ Upload panel element not found!');
                     }
                     
-                    console.log('Editor panel shown inline (no screen switch)');
-                    console.log('Editor panel display:', editorPanel ? editorPanel.style.display : 'NOT FOUND');
-                    console.log('Initial upload box display:', initialUploadBox ? initialUploadBox.style.display : 'NOT FOUND');
+                    // Force a repaint to ensure visibility
+                    if (editorPanel) {
+                        editorPanel.offsetHeight; // Trigger reflow
+                    }
                     
-                    // Double-check after a short delay to ensure everything stays visible/hidden
-                    setTimeout(() => {
-                        const checkInitialBox = document.getElementById('initial-upload-box');
-                        const checkEditorPanel = document.getElementById('editor-panel');
-                        if (checkInitialBox && checkInitialBox.style.display !== 'none') {
-                            console.warn('Initial upload box reappeared, hiding again...');
-                            checkInitialBox.style.display = 'none';
-                            checkInitialBox.style.visibility = 'hidden';
-                        }
-                        if (checkEditorPanel && checkEditorPanel.style.display !== 'block') {
-                            console.warn('Editor panel hidden, showing again...');
-                            checkEditorPanel.style.display = 'block';
-                            checkEditorPanel.style.visibility = 'visible';
-                        }
-                    }, 100);
+                    console.log('✅ Editor panel shown inline (no screen switch)');
                     
                     // Save to IndexedDB
                     try {

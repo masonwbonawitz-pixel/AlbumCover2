@@ -1126,10 +1126,16 @@ def mobile_fresh(timestamp=None):
     return response
 
 @app.route('/desktop')
+@app.route('/desktop/mobile')
 def desktop():
-    """Force desktop version"""
+    """Force desktop version (accessible from mobile via /desktop or /desktop/mobile)"""
     desktop_path = os.path.join(os.path.dirname(__file__), 'Almost finnished.html')
-    return send_file(desktop_path)
+    response = send_file(desktop_path)
+    # Force no-cache to prevent browser caching issues
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route('/generate', methods=['POST'])
