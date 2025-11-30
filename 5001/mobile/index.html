@@ -1014,7 +1014,7 @@
                     <div class="btn-text">Paint</div>
                 </button>
             </div>
-            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden;" />
+            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" capture="environment" />
         </div>
 
             <!-- Price Display Section -->
@@ -4759,73 +4759,159 @@
             
             const fileInput = document.getElementById('png-input');
             if (fileInput) {
-                // Ensure file input is accessible
-                fileInput.style.position = 'absolute';
-                fileInput.style.width = '1px';
-                fileInput.style.height = '1px';
-                fileInput.style.opacity = '0';
-                fileInput.style.pointerEvents = 'auto';
+                // For mobile, we need to make the input temporarily accessible
+                // Move it to a visible position temporarily
+                const originalStyle = {
+                    position: fileInput.style.position,
+                    top: fileInput.style.top,
+                    left: fileInput.style.left,
+                    width: fileInput.style.width,
+                    height: fileInput.style.height,
+                    opacity: fileInput.style.opacity,
+                    pointerEvents: fileInput.style.pointerEvents
+                };
                 
-                // Use direct click (works on all mobile browsers)
-                // For iOS, we need to ensure the input is in the DOM and visible
-                fileInput.focus();
-                fileInput.click();
+                // Make it accessible for click
+                fileInput.style.position = 'fixed';
+                fileInput.style.top = '50%';
+                fileInput.style.left = '50%';
+                fileInput.style.width = '200px';
+                fileInput.style.height = '200px';
+                fileInput.style.opacity = '0.01'; // Nearly invisible but clickable
+                fileInput.style.pointerEvents = 'auto';
+                fileInput.style.zIndex = '9999';
+                
+                // Trigger the click
+                setTimeout(() => {
+                    fileInput.focus();
+                    fileInput.click();
+                    
+                    // Restore original style after a delay
+                    setTimeout(() => {
+                        fileInput.style.position = originalStyle.position || 'fixed';
+                        fileInput.style.top = originalStyle.top || '-9999px';
+                        fileInput.style.left = originalStyle.left || '-9999px';
+                        fileInput.style.width = originalStyle.width || '1px';
+                        fileInput.style.height = originalStyle.height || '1px';
+                        fileInput.style.opacity = originalStyle.opacity || '0';
+                        fileInput.style.pointerEvents = originalStyle.pointerEvents || 'none';
+                        fileInput.style.zIndex = '';
+                    }, 100);
+                }, 10);
             }
         }
 
         // Add explicit touch/click handlers for upload buttons (mobile compatibility)
         window.addEventListener('DOMContentLoaded', () => {
             const fileInput = document.getElementById('png-input');
-            if (!fileInput) return;
+            if (!fileInput) {
+                console.error('File input not found!');
+                return;
+            }
+
+            // Ensure file input is accessible but hidden
+            fileInput.style.position = 'absolute';
+            fileInput.style.top = '0';
+            fileInput.style.left = '0';
+            fileInput.style.width = '1px';
+            fileInput.style.height = '1px';
+            fileInput.style.opacity = '0';
+            fileInput.style.overflow = 'hidden';
+            fileInput.style.pointerEvents = 'none';
+            fileInput.style.zIndex = '-1';
+
+            // Function to show file picker
+            function showFilePicker() {
+                const now = Date.now();
+                if (now - lastFileInputTrigger < FILE_INPUT_DEBOUNCE_MS) {
+                    return;
+                }
+                lastFileInputTrigger = now;
+                
+                console.log('Opening file picker...');
+                
+                // Create a temporary click event
+                const clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                
+                // Try multiple methods to trigger file picker
+                try {
+                    // Method 1: Direct click
+                    fileInput.focus();
+                    fileInput.click();
+                } catch (e) {
+                    console.error('Method 1 failed:', e);
+                    try {
+                        // Method 2: Dispatch event
+                        fileInput.dispatchEvent(clickEvent);
+                    } catch (e2) {
+                        console.error('Method 2 failed:', e2);
+                        // Method 3: Use label click
+                        const label = document.querySelector('label[for="png-input"]');
+                        if (label) {
+                            label.click();
+                        }
+                    }
+                }
+            }
 
             // Handler for initial upload box
             const initialUploadBox = document.getElementById('initial-upload-box');
             if (initialUploadBox) {
-                // Use touchstart - this fires before click on mobile
+                // Remove the for attribute to prevent default label behavior
+                initialUploadBox.removeAttribute('for');
+                
                 initialUploadBox.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 }, { passive: false });
-                // Click handler for mouse/desktop - will be blocked if touchstart fired recently
+                
                 initialUploadBox.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 });
             }
 
             // Handler for upload button in toolbar
             const uploadBtn = document.getElementById('upload-btn');
             if (uploadBtn) {
-                // Use touchstart - this fires before click on mobile
+                // Remove the for attribute
+                uploadBtn.removeAttribute('for');
+                
                 uploadBtn.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 }, { passive: false });
-                // Click handler for mouse/desktop - will be blocked if touchstart fired recently
+                
                 uploadBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 });
             }
 
             // Handler for upload area in panel
             const uploadArea = document.getElementById('png-upload-area');
             if (uploadArea) {
-                // Use touchstart - this fires before click on mobile
+                // Remove the for attribute
+                uploadArea.removeAttribute('for');
+                
                 uploadArea.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 }, { passive: false });
-                // Click handler for mouse/desktop - will be blocked if touchstart fired recently
+                
                 uploadArea.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    triggerFileInput();
+                    showFilePicker();
                 });
             }
         });
