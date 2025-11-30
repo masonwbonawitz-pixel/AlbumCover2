@@ -4843,30 +4843,28 @@
             fileInput.click();
         }
 
+        // Track if handlers are already set up to prevent duplicates
+        let uploadHandlersSetup = false;
+        let isProcessingFile = false; // Prevent double processing
+
         // Attach handlers when DOM is ready
         function setupUploadHandlers() {
+            // Prevent duplicate setup
+            if (uploadHandlersSetup) {
+                return;
+            }
+            
             const fileInput = document.getElementById('png-input');
             if (!fileInput) {
                 console.error('File input not found during setup!');
                 return;
             }
 
-            // Keep labels with 'for' attribute - it works better on mobile
-            // Just add click handlers as backup
+            uploadHandlersSetup = true; // Mark as setup
             
-            // Initial upload box
-            const initialUploadBox = document.getElementById('initial-upload-box');
-            if (initialUploadBox) {
-                initialUploadBox.addEventListener('click', (e) => {
-                    // Let the label handle it, but also trigger manually as backup
-                    setTimeout(() => {
-                        if (!fileInput.files || fileInput.files.length === 0) {
-                            triggerFileInput();
-                        }
-                    }, 100);
-                });
-            }
-
+            // Initial upload box - label handles it via 'for' attribute
+            // No need for additional click handler
+            
             // Upload button in toolbar - use the overlay input
             const uploadBtn = document.getElementById('upload-btn');
             const uploadBtnInput = document.getElementById('png-input-upload-btn');
@@ -4882,50 +4880,48 @@
                 uploadBtnInput.style.zIndex = '10';
                 uploadBtnInput.style.pointerEvents = 'auto';
                 
-                // Process file from overlay input
+                // Process file from overlay input - ONLY if main input hasn't processed it
                 uploadBtnInput.addEventListener('change', async (e) => {
+                    if (isProcessingFile) {
+                        console.log('File already being processed, skipping duplicate');
+                        e.target.value = '';
+                        return;
+                    }
                     const file = e.target.files[0];
                     if (file) {
                         console.log('Upload button file selected:', file.name);
+                        isProcessingFile = true;
+                        // Also sync to main input to prevent it from triggering separately
+                        try {
+                            const mainInput = document.getElementById('png-input');
+                            if (mainInput) {
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+                                mainInput.files = dataTransfer.files;
+                            }
+                        } catch (err) {
+                            console.warn('Could not sync to main input:', err);
+                        }
                         await processUploadedFile(file);
-                        // Reset input so same file can be selected again
+                        isProcessingFile = false;
+                        // Reset both inputs
                         e.target.value = '';
-                    }
-                });
-                
-                // Also handle click events to ensure it's accessible
-                uploadBtn.addEventListener('click', (e) => {
-                    // If click didn't hit the input, trigger it manually
-                    if (e.target === uploadBtn || e.target.closest('.btn-icon') || e.target.closest('.btn-text')) {
-                        e.preventDefault();
-                        uploadBtnInput.click();
+                        const mainInput = document.getElementById('png-input');
+                        if (mainInput) mainInput.value = '';
                     }
                 });
             }
 
-            // Upload area in panel
-            const uploadArea = document.getElementById('png-upload-area');
-            if (uploadArea) {
-                uploadArea.addEventListener('click', (e) => {
-                    // Let the label handle it, but also trigger manually as backup
-                    setTimeout(() => {
-                        if (!fileInput.files || fileInput.files.length === 0) {
-                            triggerFileInput();
-                        }
-                    }, 100);
-                });
-            }
+            // Upload area in panel - label handles it via 'for' attribute
+            // No need for additional click handler
         }
 
-        // Setup handlers
+        // Setup handlers once when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', setupUploadHandlers);
         } else {
             setupUploadHandlers();
         }
-        
-        // Also setup after a delay to ensure everything is ready
-        setTimeout(setupUploadHandlers, 500);
 
         // SIMPLIFIED: Process uploaded file and go directly to editor
         async function processUploadedFile(file) {
@@ -5077,15 +5073,26 @@
             reader.readAsDataURL(fileToProcess);
         }
 
-        document.getElementById('png-input').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                console.log('Main input file selected:', file.name);
-                await processUploadedFile(file);
-                // Reset input so same file can be selected again
-                e.target.value = '';
-            }
-        });
+        // Main input handler - only process once
+        const mainInput = document.getElementById('png-input');
+        if (mainInput) {
+            mainInput.addEventListener('change', async (e) => {
+                if (isProcessingFile) {
+                    console.log('File already being processed, skipping duplicate');
+                    e.target.value = '';
+                    return;
+                }
+                const file = e.target.files[0];
+                if (file) {
+                    console.log('Main input file selected:', file.name);
+                    isProcessingFile = true;
+                    await processUploadedFile(file);
+                    isProcessingFile = false;
+                    // Reset input so same file can be selected again
+                    e.target.value = '';
+                }
+            });
+        }
 
 
         // TEST: Add to Cart / Purchase button - Creates order without redirecting

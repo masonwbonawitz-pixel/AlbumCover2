@@ -1085,7 +1085,10 @@ def index():
     force_desktop = request.args.get('desktop') == 'true'
     
     if force_mobile:
-        mobile_path = os.path.join(os.path.dirname(__file__), 'mobile', 'index.html')
+        mobile_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mobile', 'index.html')
+        if not os.path.exists(mobile_path):
+            print(f"❌ Mobile file not found at: {mobile_path}")
+            return jsonify({'error': f'Mobile file not found: {mobile_path}'}), 404
         response = send_file(mobile_path)
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return response
@@ -1094,7 +1097,10 @@ def index():
         return send_file(desktop_path)
     elif is_mobile:
         # Serve mobile version
-        mobile_path = os.path.join(os.path.dirname(__file__), 'mobile', 'index.html')
+        mobile_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mobile', 'index.html')
+        if not os.path.exists(mobile_path):
+            print(f"❌ Mobile file not found at: {mobile_path}")
+            return jsonify({'error': f'Mobile file not found: {mobile_path}'}), 404
         response = send_file(mobile_path)
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return response
@@ -1106,7 +1112,32 @@ def index():
 @app.route('/mobile')
 def mobile():
     """Force mobile version"""
-    mobile_path = os.path.join(os.path.dirname(__file__), 'mobile', 'index.html')
+    # Use absolute path based on current file location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    mobile_path = os.path.join(script_dir, 'mobile', 'index.html')
+    
+    # Debug: Print path information
+    print(f"🔍 Mobile route called")
+    print(f"   __file__: {__file__}")
+    print(f"   script_dir: {script_dir}")
+    print(f"   mobile_path: {mobile_path}")
+    print(f"   exists: {os.path.exists(mobile_path)}")
+    print(f"   cwd: {os.getcwd()}")
+    
+    if not os.path.exists(mobile_path):
+        # Try alternative path
+        alt_path = os.path.join(os.getcwd(), 'mobile', 'index.html')
+        print(f"   Trying alternative: {alt_path}")
+        if os.path.exists(alt_path):
+            mobile_path = alt_path
+        else:
+            return jsonify({
+                'error': f'Mobile file not found',
+                'tried': [mobile_path, alt_path],
+                'script_dir': script_dir,
+                'cwd': os.getcwd()
+            }), 404
+    
     response = send_file(mobile_path)
     # Force no-cache to prevent browser caching issues
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -1118,7 +1149,10 @@ def mobile():
 @app.route('/mobile/<int:timestamp>')
 def mobile_fresh(timestamp=None):
     """Mobile version with cache busting"""
-    mobile_path = os.path.join(os.path.dirname(__file__), 'mobile', 'index.html')
+    mobile_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mobile', 'index.html')
+    if not os.path.exists(mobile_path):
+        print(f"❌ Mobile file not found at: {mobile_path}")
+        return jsonify({'error': f'Mobile file not found: {mobile_path}'}), 404
     response = send_file(mobile_path)
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
