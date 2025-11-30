@@ -2046,11 +2046,16 @@ def validate_shopify_credentials():
 
 if __name__ == '__main__':
     print("🚀 Starting Album Cover 3D Color Mapper server...")
-    print("📂 Open http://localhost:5000 in your browser")
-    print("🔧 Admin price editor: http://localhost:5000/admin/prices")
     
     # Validate Shopify credentials if attempting to use Shopify features
     validate_shopify_credentials()
     
-    app.run(debug=True, port=5000)
+    # Use PORT environment variable if available (for production), otherwise default to 5000
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_ENV') != 'production'
+    
+    print(f"📂 Open http://localhost:{port} in your browser")
+    print(f"🔧 Admin price editor: http://localhost:{port}/admin/prices")
+    
+    app.run(debug=debug, port=port, host='0.0.0.0')
 
