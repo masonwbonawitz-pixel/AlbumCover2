@@ -1568,11 +1568,46 @@ def webhook_order_paid():
 
 
 @app.route('/admin')
+@app.route('/admin/')
 @app.route('/admin/prices')
 def admin_prices_page():
     """Serve admin price editor HTML page"""
-    admin_path = os.path.join(os.path.dirname(__file__), 'admin.html')
-    return send_file(admin_path)
+    try:
+        # Try multiple possible paths
+        possible_paths = [
+            os.path.join(os.path.dirname(__file__), 'admin.html'),
+            os.path.join(os.getcwd(), 'admin.html'),
+            'admin.html',
+            '/app/admin.html'
+        ]
+        
+        admin_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                admin_path = path
+                break
+        
+        if not admin_path:
+            # Debug info
+            current_dir = os.getcwd()
+            script_dir = os.path.dirname(__file__)
+            files_in_script_dir = os.listdir(script_dir) if os.path.exists(script_dir) else []
+            files_in_current_dir = os.listdir(current_dir) if os.path.exists(current_dir) else []
+            
+            return jsonify({
+                'error': 'Admin file not found',
+                'debug': {
+                    'script_dir': script_dir,
+                    'current_dir': current_dir,
+                    'files_in_script_dir': files_in_script_dir,
+                    'files_in_current_dir': files_in_current_dir,
+                    'tried_paths': possible_paths
+                }
+            }), 404
+        
+        return send_file(admin_path, mimetype='text/html')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/admin/prices/api', methods=['GET', 'POST'])
