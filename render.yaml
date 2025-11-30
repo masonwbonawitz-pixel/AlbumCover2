@@ -2,7 +2,6 @@ services:
   - type: web
     name: rize-albums-backend
     runtime: docker
-    rootDir: 5001
     dockerfilePath: Dockerfile
     envVars:
       - key: SHOPIFY_STORE_URL
