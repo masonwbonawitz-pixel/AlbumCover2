@@ -346,11 +346,9 @@ def get_triangle_colors_from_image(vertices: np.ndarray, faces: np.ndarray, img_
     sizeX = max(1e-9, maxX - minX)
     sizeY = max(1e-9, maxY - minY)
     
-    # Ensure square aspect ratio to prevent rectangular distortion
-    # Use the larger dimension to ensure we cover the full model
-    maxSize = max(sizeX, sizeY)
-    sizeX = maxSize
-    sizeY = maxSize
+    # NOTE: Frontend does NOT enforce square aspect ratio - it uses sizeX and sizeY directly
+    # Matching frontend behavior exactly - do NOT square the aspect ratio
+    # This ensures pixel mapping matches exactly what the user sees in the 3D viewer
     
     # Get triangle centroids
     centroids = tri_verts.mean(axis=1)
@@ -358,6 +356,14 @@ def get_triangle_colors_from_image(vertices: np.ndarray, faces: np.ndarray, img_
     # Map each triangle centroid to image pixel
     num_faces = len(faces)
     triangle_colors = np.zeros((num_faces, 3), dtype=np.uint8)
+    
+    # Debug: Log bounds and image dimensions
+    print(f"🔍 Color mapping debug:")
+    print(f"   Bounds: X=[{minX:.3f}, {maxX:.3f}], Y=[{minY:.3f}, {maxY:.3f}]")
+    print(f"   Size: X={sizeX:.3f}, Y={sizeY:.3f}")
+    print(f"   Image dimensions: {img_width}×{img_height}")
+    print(f"   Grid size: {grid_size}")
+    print(f"   Number of triangles: {num_faces}")
     
     # For Normal mode (48), use continuous mapping - each triangle maps individually (no pixel grouping)
     # For other modes, use grid-based mapping with pixel grouping
@@ -398,6 +404,10 @@ def get_triangle_colors_from_image(vertices: np.ndarray, faces: np.ndarray, img_
             pixel_color = img_rgb[py, px, :]  # Get exact pixel color
             for tri_idx in tri_indices:
                 triangle_colors[tri_idx] = pixel_color
+        
+        # Debug: Log color distribution before quantization
+        unique_colors_before = len(set(tuple(c) for c in triangle_colors))
+        print(f"   Normal mode: {len(pixel_triangles)} unique pixels mapped, {unique_colors_before} unique colors before quantization")
     else:
         # Grid-based mapping for pixelated modes - group triangles by pixel
         from collections import defaultdict
@@ -446,6 +456,15 @@ def get_triangle_colors_from_image(vertices: np.ndarray, faces: np.ndarray, img_
             pixel_color = img_rgb[py, px, :]  # Get color directly from image
             for tri_idx in tri_indices:
                 triangle_colors[tri_idx] = pixel_color
+        
+        # Debug: Log color distribution before quantization
+        unique_colors_before = len(set(tuple(c) for c in triangle_colors))
+        print(f"   Grid mode: {len(pixel_triangles)} unique pixels mapped, {unique_colors_before} unique colors before quantization")
+    
+    # Debug: Show sample of assigned colors
+    if num_faces > 0:
+        sample_colors = triangle_colors[:min(10, num_faces)]
+        print(f"   Sample colors (first 10 triangles): {sample_colors.tolist()}")
     
     return triangle_colors
 
@@ -1024,8 +1043,16 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
+    # Debug: Check color distribution before quantization
+    unique_before = len(set(tuple(c) for c in triangle_colors))
+    print(f"📊 Color mapping complete: {unique_before} unique colors before quantization")
+    
     # Always quantize to 4 colors for all modes
     triangle_colors = quantize_to_four_colors(triangle_colors)
+    
+    # Debug: Verify quantization worked
+    unique_after = len(set(tuple(c) for c in triangle_colors))
+    print(f"📊 After quantization: {unique_after} unique colors (should be ≤4)")
     
     # Use vertex colors for ALL modes (same approach that works for pixelated)
     obj_bytes, mtl_bytes = write_obj_with_colors(vertices, faces, triangle_colors, False, img_array)

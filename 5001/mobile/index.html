@@ -4916,146 +4916,158 @@
         // Also setup after a delay to ensure everything is ready
         setTimeout(setupUploadHandlers, 500);
 
+        // Reusable function to process uploaded file
+        async function processUploadedFile(file) {
+            if (!file) {
+                console.error('No file provided to processUploadedFile');
+                return;
+            }
+            
+            // Update global pngFile variable
+            pngFile = file;
+            document.getElementById('png-upload-area').classList.add('has-file');
+            document.getElementById('png-upload-text').textContent = pngFile.name;
+            
+            let fileToProcess = pngFile;
+            
+            // Check if file is HEIC/HEIF and convert it
+            const fileExtension = pngFile.name.toLowerCase().split('.').pop();
+            const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
+                           pngFile.type === 'image/heic' || pngFile.type === 'image/heif';
+            
+            if (isHeic && typeof heic2any !== 'undefined') {
+                try {
+                    showStatus('loading', 'Converting HEIC image...');
+                    // Convert HEIC to JPEG
+                    const convertedBlob = await heic2any({
+                        blob: pngFile,
+                        toType: 'image/jpeg',
+                        quality: 0.92
+                    });
+                    // heic2any returns an array, take the first element
+                    const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
+                    // Create a new File object with the converted blob
+                    fileToProcess = new File([convertedFile], pngFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
+                        type: 'image/jpeg' 
+                    });
+                    showStatus('success', 'HEIC image converted successfully');
+                } catch (error) {
+                    console.error('HEIC conversion error:', error);
+                    showStatus('error', 'Failed to convert HEIC image. Please try a different format.');
+                    return;
+                }
+            }
+            
+            // Load image and show preview
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const img = new Image();
+                img.onload = async () => {
+                    rawUploadedImage = img; // Store raw image for editor
+                    fullOriginalImage = img; // Store full original uncropped image
+                    cropCoordinates = null; // Reset crop coordinates when new image is uploaded
+                    
+                    // Reset cropper state when new image is uploaded
+                    fullProcessedImageDataURL = null;
+                    cropperVisible = false;
+                    cropperManuallyHidden = false; // Reset flag for new image
+                    cropInitialized = false;
+                    const previewImg = document.getElementById('png-preview-img');
+                    if (previewImg) {
+                        previewImg.removeAttribute('data-cropper-fixed');
+                    }
+                    document.getElementById('png-preview').style.display = 'none';
+                    document.getElementById('crop-canvas').style.display = 'none';
+                    document.getElementById('show-cropper-btn').style.display = 'block';
+                    document.getElementById('hide-cropper-btn').style.display = 'none';
+                    
+                    // Auto-tune settings per new image
+                    autoTuneSettingsFromImage(img);
+                    // Update sliders/labels
+                    document.getElementById('contrast-slider').value = String(editorSettings.contrast);
+                    document.getElementById('brightness-slider').value = String(editorSettings.brightness);
+                    document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
+                    document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                    // Don't set preview image here - it will be set to processed version after processImage() runs
+                    // document.getElementById('png-preview-img').src = event.target.result;
+                    // Show crop buttons when image is uploaded
+                    document.getElementById('crop-buttons').style.display = 'block';
+                    // Don't show preview automatically - only show when "Show Cropper" is clicked
+                    // document.getElementById('png-preview').style.display = 'block';
+                    
+                    // Hide initial upload box and show all controls
+                    const initialUploadBox = document.getElementById('initial-upload-box');
+                    if (initialUploadBox) {
+                        initialUploadBox.style.display = 'none';
+                    }
+                    
+                    // Show action buttons
+                    const actionButtonsContainer = document.getElementById('action-buttons-container');
+                    if (actionButtonsContainer) {
+                        actionButtonsContainer.style.display = 'flex';
+                    }
+                    
+                    // Show price section
+                    const priceSection = document.getElementById('price-display-section');
+                    if (priceSection) {
+                        priceSection.style.display = 'block';
+                        // Update price immediately when section becomes visible
+                        updatePriceDisplay();
+                    }
+                    
+                    // Load STL for the selected grid size
+                    await loadSTLFromServer(selectedGridSize);
+                    
+                    // Ensure editor is visible so user can adjust before mapping
+                    showEditorPanel();
+                    processImage();
+                    
+                    // Open size panel and show cropper when image is first uploaded
+                    setTimeout(() => {
+                        // Open size panel
+                        document.getElementById('adjust-panel').classList.remove('active');
+                        document.getElementById('size-panel').classList.add('active');
+                        document.getElementById('paint-panel').classList.remove('active');
+                        document.getElementById('adjust-btn').classList.remove('active');
+                        document.getElementById('size-btn').classList.add('active');
+                        document.getElementById('paint-btn').classList.remove('active');
+                        
+                        // Make sure upload panel is visible for cropper
+                        const uploadPanel = document.getElementById('upload-panel');
+                        if (uploadPanel) {
+                            uploadPanel.style.display = 'block';
+                            // Hide upload area and label, keep only cropper visible
+                            const uploadArea = document.getElementById('png-upload-area');
+                            const sectionLabel = uploadPanel.querySelector('.section-label');
+                            if (uploadArea) uploadArea.style.display = 'none';
+                            if (sectionLabel) sectionLabel.style.display = 'none';
+                            // Show crop buttons
+                            const cropButtons = document.getElementById('crop-buttons');
+                            if (cropButtons) {
+                                cropButtons.style.display = 'block';
+                            }
+                        }
+                        
+                        // Show cropper
+                        if (!cropperManuallyHidden) {
+                            showCropper();
+                        }
+                    }, 200);
+
+                    // Persist converted file to IndexedDB for current grid size
+                    saveFileToDB(dbKey('png'), fileToProcess);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(fileToProcess);
+        }
+
         document.getElementById('png-input').addEventListener('change', async (e) => {
             // Show upload section when file is selected
             // Upload panel is shown/hidden via togglePanel, don't force show here
-            pngFile = e.target.files[0];
-            if (pngFile) {
-                document.getElementById('png-upload-area').classList.add('has-file');
-                document.getElementById('png-upload-text').textContent = pngFile.name;
-                
-                let fileToProcess = pngFile;
-                
-                // Check if file is HEIC/HEIF and convert it
-                const fileExtension = pngFile.name.toLowerCase().split('.').pop();
-                const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
-                               pngFile.type === 'image/heic' || pngFile.type === 'image/heif';
-                
-                if (isHeic && typeof heic2any !== 'undefined') {
-                    try {
-                        showStatus('loading', 'Converting HEIC image...');
-                        // Convert HEIC to JPEG
-                        const convertedBlob = await heic2any({
-                            blob: pngFile,
-                            toType: 'image/jpeg',
-                            quality: 0.92
-                        });
-                        // heic2any returns an array, take the first element
-                        const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
-                        // Create a new File object with the converted blob
-                        fileToProcess = new File([convertedFile], pngFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
-                            type: 'image/jpeg' 
-                        });
-                        showStatus('success', 'HEIC image converted successfully');
-                    } catch (error) {
-                        console.error('HEIC conversion error:', error);
-                        showStatus('error', 'Failed to convert HEIC image. Please try a different format.');
-                        return;
-                    }
-                }
-                
-                // Load image and show preview
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    const img = new Image();
-                    img.onload = async () => {
-                        rawUploadedImage = img; // Store raw image for editor
-                        fullOriginalImage = img; // Store full original uncropped image
-                        cropCoordinates = null; // Reset crop coordinates when new image is uploaded
-                        
-                        // Reset cropper state when new image is uploaded
-                        fullProcessedImageDataURL = null;
-                        cropperVisible = false;
-                        cropperManuallyHidden = false; // Reset flag for new image
-                        cropInitialized = false;
-                        const previewImg = document.getElementById('png-preview-img');
-                        if (previewImg) {
-                            previewImg.removeAttribute('data-cropper-fixed');
-                        }
-                        document.getElementById('png-preview').style.display = 'none';
-                        document.getElementById('crop-canvas').style.display = 'none';
-                        document.getElementById('show-cropper-btn').style.display = 'block';
-                        document.getElementById('hide-cropper-btn').style.display = 'none';
-                        
-                        // Auto-tune settings per new image
-                        autoTuneSettingsFromImage(img);
-                        // Update sliders/labels
-                        document.getElementById('contrast-slider').value = String(editorSettings.contrast);
-                        document.getElementById('brightness-slider').value = String(editorSettings.brightness);
-                        document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
-                        document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
-                        // Don't set preview image here - it will be set to processed version after processImage() runs
-                        // document.getElementById('png-preview-img').src = event.target.result;
-                        // Show crop buttons when image is uploaded
-                        document.getElementById('crop-buttons').style.display = 'block';
-                        // Don't show preview automatically - only show when "Show Cropper" is clicked
-                        // document.getElementById('png-preview').style.display = 'block';
-                        
-                        // Hide initial upload box and show all controls
-                        const initialUploadBox = document.getElementById('initial-upload-box');
-                        if (initialUploadBox) {
-                            initialUploadBox.style.display = 'none';
-                        }
-                        
-                        // Show action buttons
-                        const actionButtonsContainer = document.getElementById('action-buttons-container');
-                        if (actionButtonsContainer) {
-                            actionButtonsContainer.style.display = 'flex';
-                        }
-                        
-                        // Show price section
-                        const priceSection = document.getElementById('price-display-section');
-                        if (priceSection) {
-                            priceSection.style.display = 'block';
-                            // Update price immediately when section becomes visible
-                            updatePriceDisplay();
-                        }
-                        
-                        // Load STL for the selected grid size
-                        await loadSTLFromServer(selectedGridSize);
-                        
-                        // Ensure editor is visible so user can adjust before mapping
-                        showEditorPanel();
-                        processImage();
-                        
-                        // Open size panel and show cropper when image is first uploaded
-                        setTimeout(() => {
-                            // Open size panel
-                            document.getElementById('adjust-panel').classList.remove('active');
-                            document.getElementById('size-panel').classList.add('active');
-                            document.getElementById('paint-panel').classList.remove('active');
-                            document.getElementById('adjust-btn').classList.remove('active');
-                            document.getElementById('size-btn').classList.add('active');
-                            document.getElementById('paint-btn').classList.remove('active');
-                            
-                            // Make sure upload panel is visible for cropper
-                            const uploadPanel = document.getElementById('upload-panel');
-                            if (uploadPanel) {
-                                uploadPanel.style.display = 'block';
-                                // Hide upload area and label, keep only cropper visible
-                                const uploadArea = document.getElementById('png-upload-area');
-                                const sectionLabel = uploadPanel.querySelector('.section-label');
-                                if (uploadArea) uploadArea.style.display = 'none';
-                                if (sectionLabel) sectionLabel.style.display = 'none';
-                                // Show crop buttons
-                                const cropButtons = document.getElementById('crop-buttons');
-                                if (cropButtons) {
-                                    cropButtons.style.display = 'block';
-                                }
-                            }
-                            
-                            // Show cropper
-                            if (!cropperManuallyHidden) {
-                                showCropper();
-                            }
-                        }, 200);
-
-                        // Persist converted file to IndexedDB for current grid size
-                        saveFileToDB(dbKey('png'), fileToProcess);
-                    };
-                    img.src = event.target.result;
-                };
-                reader.readAsDataURL(fileToProcess);
+            const file = e.target.files[0];
+            if (file) {
+                await processUploadedFile(file);
             }
         });
 
