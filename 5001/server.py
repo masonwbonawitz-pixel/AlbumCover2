@@ -823,7 +823,8 @@ def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: 
     obj_content.append("")
     
     # CRITICAL: Add MTL reference so Bambu Studio loads the texture
-    obj_content.append("mtllib output.mtl")
+    # Use model.mtl to match the saved filename
+    obj_content.append("mtllib model.mtl")
     obj_content.append("usemtl texture_material")
     obj_content.append("")
     
@@ -884,7 +885,7 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
     obj_content.append("# Materials separated by color for exact color matching")
     obj_content.append("# Vertices duplicated per triangle to prevent color interpolation")
     obj_content.append("")
-    obj_content.append("mtllib output.mtl")
+    obj_content.append("mtllib model.mtl")
     obj_content.append("")
     
     # Build all vertices and faces, grouped by material
@@ -1241,24 +1242,28 @@ def generate_obj_route():
         print(f"📊 PNG size: {len(png_bytes)} bytes")
         print(f"📊 Grid size: {grid_size}x{grid_size}")
 
-        # Always use vertex colors with 4-color quantization for all modes
-        print("⚙️  Generating OBJ and MTL files with 4 colors...")
+        # Use vertex colors for ALL modes to match the 3D viewer exactly
+        # The frontend viewer uses vertex colors for all modes, so export should match
+        print("⚙️  Generating OBJ and MTL files with vertex colors (matching 3D viewer)...")
         obj_bytes, mtl_bytes, texture_png_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
         
         print(f"✅ OBJ size: {len(obj_bytes)} bytes")
         print(f"✅ MTL size: {len(mtl_bytes)} bytes")
 
-        # Create a ZIP file with OBJ and MTL
+        # Create a ZIP file with OBJ, MTL, and reference texture PNG
         print("📦 Creating ZIP archive...")
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             zip_file.writestr('output.obj', obj_bytes)
             zip_file.writestr('output.mtl', mtl_bytes)
+            # Include reference texture PNG (the processed image used for color mapping)
+            zip_file.writestr('texture.png', png_bytes)
+            print("✅ Included texture.png in ZIP (reference image used for color mapping)")
         zip_buffer.seek(0)
         
         print(f"✅ ZIP size: {zip_buffer.getbuffer().nbytes} bytes")
         print("📤 Sending ZIP file to client...")
-
+        
         # Return as downloadable ZIP
         return send_file(
             zip_buffer,
@@ -1359,19 +1364,14 @@ def upload_for_checkout():
         except Exception as e:
             print(f"⚠️  Warning: Could not load price: {e}")
         
-        # For Normal mode (48x48), generate OBJ with UV texture (more reliable than 3MF texture)
-        # For pixelated modes, generate OBJ with vertex colors
-        is_normal_mode = (grid_size == 48)
-        if is_normal_mode:
-            print("⚙️  Generating OBJ file with UV texture mapping (Normal mode - baking image to texture)...")
-            img = load_png(png_bytes, target_size=None)  # Keep full resolution
-            img_array = get_png_as_array(img)
-            vertices, faces = load_stl_vertices_faces(stl_bytes)
-            obj_bytes, mtl_bytes = write_obj_with_uv_texture(vertices, faces, img_array)
-            texture_png_bytes = png_bytes  # Include texture PNG
-        else:
-            print("⚙️  Generating OBJ and MTL files...")
-            obj_bytes, mtl_bytes, texture_png_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
+        # Use vertex colors for ALL modes to match the 3D viewer exactly
+        # The frontend viewer uses vertex colors for all modes (including 48x48 Normal mode)
+        # This ensures the exported OBJ shows exactly what's displayed in the viewer
+        print("⚙️  Generating OBJ and MTL files with vertex colors (matching 3D viewer)...")
+        obj_bytes, mtl_bytes, texture_png_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
+        
+        # For reference, also save the processed PNG (but OBJ uses vertex colors)
+        reference_png_bytes = png_bytes
         
         # Create unique order ID
         order_id = str(uuid.uuid4())
@@ -1394,6 +1394,13 @@ def upload_for_checkout():
             f.write(obj_bytes)
         with open(mtl_path, 'wb') as f:
             f.write(mtl_bytes)
+        
+        # Save processed PNG as reference (OBJ uses vertex colors, but PNG is saved for reference)
+        # This ensures users have the exact image that was used for color mapping
+        reference_png_path = os.path.join(order_dir, 'texture.png')
+        with open(reference_png_path, 'wb') as f:
+            f.write(reference_png_bytes)
+        print(f"✅ Saved reference texture PNG: {reference_png_path}")
         
         # Also save original PNG for reference
         png_path = os.path.join(order_dir, 'original.png')
