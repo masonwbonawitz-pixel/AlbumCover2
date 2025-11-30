@@ -4099,26 +4099,31 @@
                     isPainting = true;
                     const rect = processedCanvas.getBoundingClientRect();
                     
-                    // Calculate click position in image space accounting for zoom and offset
-                    // The image is drawn with transforms: translate(center) -> translate(offset) -> scale(zoom)
-                    // So to reverse: get canvas coords, subtract center, subtract offset, divide by zoom
-                    const canvasX = e.clientX - rect.left;
-                    const canvasY = e.clientY - rect.top;
-                    const w = processedCanvas.width;
-                    const h = processedCanvas.height;
+                    // Get actual displayed size and internal canvas size
+                    const displayWidth = rect.width;
+                    const displayHeight = rect.height;
+                    const canvasWidth = processedCanvas.width;
+                    const canvasHeight = processedCanvas.height;
                     
-                    // Convert to coordinates relative to center
-                    const centerRelativeX = canvasX - w / 2;
-                    const centerRelativeY = canvasY - h / 2;
+                    // Convert mouse position to canvas coordinates (accounting for display vs internal size)
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    
+                    // Scale to internal canvas coordinates
+                    const canvasX = (mouseX / displayWidth) * canvasWidth;
+                    const canvasY = (mouseY / displayHeight) * canvasHeight;
+                    
+                    // Convert to coordinates relative to center (image is drawn centered)
+                    const centerRelativeX = canvasX - canvasWidth / 2;
+                    const centerRelativeY = canvasY - canvasHeight / 2;
                     
                     // Apply inverse transform: subtract offset, then divide by zoom
                     const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
                     const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
                     
-                    // Convert to coordinates where image is drawn at (-w/2, -h/2) with size (w, h)
-                    // So add w/2 and h/2 to get coordinates from 0 to w/h
-                    const normalizedX = imageSpaceX + w / 2;
-                    const normalizedY = imageSpaceY + h / 2;
+                    // Convert back to canvas coordinates (0 to canvasWidth/Height)
+                    const normalizedX = imageSpaceX + canvasWidth / 2;
+                    const normalizedY = imageSpaceY + canvasHeight / 2;
                     
                     if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
                         redrawProcessedCanvas();
@@ -4146,23 +4151,31 @@
                     // Continue painting (only if not in pan mode)
                     const rect = processedCanvas.getBoundingClientRect();
                     
-                    // Calculate position in image space accounting for zoom and offset
-                    const canvasX = e.clientX - rect.left;
-                    const canvasY = e.clientY - rect.top;
-                    const w = processedCanvas.width;
-                    const h = processedCanvas.height;
+                    // Get actual displayed size and internal canvas size
+                    const displayWidth = rect.width;
+                    const displayHeight = rect.height;
+                    const canvasWidth = processedCanvas.width;
+                    const canvasHeight = processedCanvas.height;
+                    
+                    // Convert mouse position to canvas coordinates
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    
+                    // Scale to internal canvas coordinates
+                    const canvasX = (mouseX / displayWidth) * canvasWidth;
+                    const canvasY = (mouseY / displayHeight) * canvasHeight;
                     
                     // Convert to coordinates relative to center
-                    const centerRelativeX = canvasX - w / 2;
-                    const centerRelativeY = canvasY - h / 2;
+                    const centerRelativeX = canvasX - canvasWidth / 2;
+                    const centerRelativeY = canvasY - canvasHeight / 2;
                     
                     // Apply inverse transform: subtract offset, then divide by zoom
                     const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
                     const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
                     
-                    // Convert to coordinates where image is drawn at (-w/2, -h/2) with size (w, h)
-                    const normalizedX = imageSpaceX + w / 2;
-                    const normalizedY = imageSpaceY + h / 2;
+                    // Convert back to canvas coordinates
+                    const normalizedX = imageSpaceX + canvasWidth / 2;
+                    const normalizedY = imageSpaceY + canvasHeight / 2;
                     
                     if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
                         redrawProcessedCanvas();
@@ -4216,17 +4229,31 @@
                     }
                     isPainting = true;
                     
-                    const canvasX = touch.clientX - rect.left;
-                    const canvasY = touch.clientY - rect.top;
-                    const w = processedCanvas.width;
-                    const h = processedCanvas.height;
+                    // Get actual displayed size and internal canvas size
+                    const displayWidth = rect.width;
+                    const displayHeight = rect.height;
+                    const canvasWidth = processedCanvas.width;
+                    const canvasHeight = processedCanvas.height;
                     
-                    const centerRelativeX = canvasX - w / 2;
-                    const centerRelativeY = canvasY - h / 2;
+                    // Convert touch position to canvas coordinates
+                    const touchX = touch.clientX - rect.left;
+                    const touchY = touch.clientY - rect.top;
+                    
+                    // Scale to internal canvas coordinates
+                    const canvasX = (touchX / displayWidth) * canvasWidth;
+                    const canvasY = (touchY / displayHeight) * canvasHeight;
+                    
+                    // Convert to coordinates relative to center
+                    const centerRelativeX = canvasX - canvasWidth / 2;
+                    const centerRelativeY = canvasY - canvasHeight / 2;
+                    
+                    // Apply inverse transform: subtract offset, then divide by zoom
                     const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
                     const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
-                    const normalizedX = imageSpaceX + w / 2;
-                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    // Convert back to canvas coordinates
+                    const normalizedX = imageSpaceX + canvasWidth / 2;
+                    const normalizedY = imageSpaceY + canvasHeight / 2;
                     
                     if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
                         redrawProcessedCanvas();
@@ -4256,17 +4283,31 @@
                     redrawProcessedCanvas();
                 } else if (isPainting && !isDraggingPan) {
                     // Continue painting
-                    const canvasX = touch.clientX - rect.left;
-                    const canvasY = touch.clientY - rect.top;
-                    const w = processedCanvas.width;
-                    const h = processedCanvas.height;
+                    // Get actual displayed size and internal canvas size
+                    const displayWidth = rect.width;
+                    const displayHeight = rect.height;
+                    const canvasWidth = processedCanvas.width;
+                    const canvasHeight = processedCanvas.height;
                     
-                    const centerRelativeX = canvasX - w / 2;
-                    const centerRelativeY = canvasY - h / 2;
+                    // Convert touch position to canvas coordinates
+                    const touchX = touch.clientX - rect.left;
+                    const touchY = touch.clientY - rect.top;
+                    
+                    // Scale to internal canvas coordinates
+                    const canvasX = (touchX / displayWidth) * canvasWidth;
+                    const canvasY = (touchY / displayHeight) * canvasHeight;
+                    
+                    // Convert to coordinates relative to center
+                    const centerRelativeX = canvasX - canvasWidth / 2;
+                    const centerRelativeY = canvasY - canvasHeight / 2;
+                    
+                    // Apply inverse transform: subtract offset, then divide by zoom
                     const imageSpaceX = (centerRelativeX - processedZoomOffsetX) / processedZoom;
                     const imageSpaceY = (centerRelativeY - processedZoomOffsetY) / processedZoom;
-                    const normalizedX = imageSpaceX + w / 2;
-                    const normalizedY = imageSpaceY + h / 2;
+                    
+                    // Convert back to canvas coordinates
+                    const normalizedX = imageSpaceX + canvasWidth / 2;
+                    const normalizedY = imageSpaceY + canvasHeight / 2;
                     
                     if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
                         redrawProcessedCanvas();
