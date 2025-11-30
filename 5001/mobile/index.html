@@ -4916,150 +4916,226 @@
         // Also setup after a delay to ensure everything is ready
         setTimeout(setupUploadHandlers, 500);
 
-        // Reusable function to process uploaded file
+        // Reusable function to process uploaded file - OVERRIDES ALL PREVIOUS LOGIC
         async function processUploadedFile(file) {
+            console.log('🚀 processUploadedFile called with file:', file?.name);
+            
             if (!file) {
-                console.error('No file provided to processUploadedFile');
+                console.error('❌ No file provided to processUploadedFile');
                 return;
             }
             
-            // Update global pngFile variable
-            pngFile = file;
-            document.getElementById('png-upload-area').classList.add('has-file');
-            document.getElementById('png-upload-text').textContent = pngFile.name;
-            
-            let fileToProcess = pngFile;
-            
-            // Check if file is HEIC/HEIF and convert it
-            const fileExtension = pngFile.name.toLowerCase().split('.').pop();
-            const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
-                           pngFile.type === 'image/heic' || pngFile.type === 'image/heif';
-            
-            if (isHeic && typeof heic2any !== 'undefined') {
-                try {
-                    showStatus('loading', 'Converting HEIC image...');
-                    // Convert HEIC to JPEG
-                    const convertedBlob = await heic2any({
-                        blob: pngFile,
-                        toType: 'image/jpeg',
-                        quality: 0.92
-                    });
-                    // heic2any returns an array, take the first element
-                    const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
-                    // Create a new File object with the converted blob
-                    fileToProcess = new File([convertedFile], pngFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
-                        type: 'image/jpeg' 
-                    });
-                    showStatus('success', 'HEIC image converted successfully');
-                } catch (error) {
-                    console.error('HEIC conversion error:', error);
-                    showStatus('error', 'Failed to convert HEIC image. Please try a different format.');
-                    return;
+            try {
+                // IMMEDIATELY hide initial upload box - do this first
+                const initialUploadBox = document.getElementById('initial-upload-box');
+                if (initialUploadBox) {
+                    initialUploadBox.style.display = 'none';
+                    console.log('✅ Hidden initial upload box');
                 }
+                
+                // Update global pngFile variable
+                pngFile = file;
+                const uploadArea = document.getElementById('png-upload-area');
+                const uploadText = document.getElementById('png-upload-text');
+                if (uploadArea) {
+                    uploadArea.classList.add('has-file');
+                }
+                if (uploadText) {
+                    uploadText.textContent = pngFile.name;
+                }
+                console.log('✅ Updated file variables');
+                
+                let fileToProcess = pngFile;
+                
+                // Check if file is HEIC/HEIF and convert it
+                const fileExtension = pngFile.name.toLowerCase().split('.').pop();
+                const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
+                               pngFile.type === 'image/heic' || pngFile.type === 'image/heif';
+                
+                if (isHeic && typeof heic2any !== 'undefined') {
+                    try {
+                        showStatus('loading', 'Converting HEIC image...');
+                        const convertedBlob = await heic2any({
+                            blob: pngFile,
+                            toType: 'image/jpeg',
+                            quality: 0.92
+                        });
+                        const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
+                        fileToProcess = new File([convertedFile], pngFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
+                            type: 'image/jpeg' 
+                        });
+                        showStatus('success', 'HEIC image converted successfully');
+                        console.log('✅ HEIC converted');
+                    } catch (error) {
+                        console.error('❌ HEIC conversion error:', error);
+                        showStatus('error', 'Failed to convert HEIC image. Please try a different format.');
+                        return;
+                    }
+                }
+                
+                // Load image and process
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = (error) => {
+                        console.error('❌ FileReader error:', error);
+                        reject(error);
+                    };
+                    
+                    reader.onload = async (event) => {
+                        try {
+                            console.log('📖 File read, loading image...');
+                            const img = new Image();
+                            
+                            img.onerror = (error) => {
+                                console.error('❌ Image load error:', error);
+                                reject(error);
+                            };
+                            
+                            img.onload = async () => {
+                                try {
+                                    console.log('🖼️ Image loaded, processing...');
+                                    
+                                    // Store images
+                                    rawUploadedImage = img;
+                                    fullOriginalImage = img;
+                                    cropCoordinates = null;
+                                    
+                                    // Reset cropper state
+                                    fullProcessedImageDataURL = null;
+                                    cropperVisible = false;
+                                    cropperManuallyHidden = false;
+                                    cropInitialized = false;
+                                    
+                                    const previewImg = document.getElementById('png-preview-img');
+                                    if (previewImg) {
+                                        previewImg.removeAttribute('data-cropper-fixed');
+                                    }
+                                    
+                                    // Hide/show UI elements
+                                    const pngPreview = document.getElementById('png-preview');
+                                    const cropCanvas = document.getElementById('crop-canvas');
+                                    const showCropperBtn = document.getElementById('show-cropper-btn');
+                                    const hideCropperBtn = document.getElementById('hide-cropper-btn');
+                                    
+                                    if (pngPreview) pngPreview.style.display = 'none';
+                                    if (cropCanvas) cropCanvas.style.display = 'none';
+                                    if (showCropperBtn) showCropperBtn.style.display = 'block';
+                                    if (hideCropperBtn) hideCropperBtn.style.display = 'none';
+                                    
+                                    // Auto-tune settings
+                                    autoTuneSettingsFromImage(img);
+                                    
+                                    const contrastSlider = document.getElementById('contrast-slider');
+                                    const brightnessSlider = document.getElementById('brightness-slider');
+                                    const contrastValue = document.getElementById('contrast-value');
+                                    const brightnessValue = document.getElementById('brightness-value');
+                                    
+                                    if (contrastSlider) contrastSlider.value = String(editorSettings.contrast);
+                                    if (brightnessSlider) brightnessSlider.value = String(editorSettings.brightness);
+                                    if (contrastValue) contrastValue.textContent = editorSettings.contrast.toFixed(1);
+                                    if (brightnessValue) brightnessValue.textContent = editorSettings.brightness.toFixed(1);
+                                    
+                                    const cropButtons = document.getElementById('crop-buttons');
+                                    if (cropButtons) cropButtons.style.display = 'block';
+                                    
+                                    // FORCE HIDE initial upload box again (in case it reappeared)
+                                    if (initialUploadBox) {
+                                        initialUploadBox.style.display = 'none';
+                                    }
+                                    
+                                    // Show action buttons
+                                    const actionButtonsContainer = document.getElementById('action-buttons-container');
+                                    if (actionButtonsContainer) {
+                                        actionButtonsContainer.style.display = 'flex';
+                                    }
+                                    
+                                    // Show price section
+                                    const priceSection = document.getElementById('price-display-section');
+                                    if (priceSection) {
+                                        priceSection.style.display = 'block';
+                                        updatePriceDisplay();
+                                    }
+                                    
+                                    console.log('✅ UI updated, loading STL...');
+                                    
+                                    // Load STL
+                                    try {
+                                        await loadSTLFromServer(selectedGridSize);
+                                        console.log('✅ STL loaded');
+                                    } catch (stlError) {
+                                        console.warn('⚠️ STL load error (non-critical):', stlError);
+                                    }
+                                    
+                                    // FORCE SHOW EDITOR PANEL - this is critical
+                                    console.log('🎨 Showing editor panel...');
+                                    showEditorPanel();
+                                    
+                                    // Process image
+                                    console.log('🔄 Processing image...');
+                                    processImage();
+                                    
+                                    // Open size panel
+                                    setTimeout(() => {
+                                        const adjustPanel = document.getElementById('adjust-panel');
+                                        const sizePanel = document.getElementById('size-panel');
+                                        const paintPanel = document.getElementById('paint-panel');
+                                        const adjustBtn = document.getElementById('adjust-btn');
+                                        const sizeBtn = document.getElementById('size-btn');
+                                        const paintBtn = document.getElementById('paint-btn');
+                                        
+                                        if (adjustPanel) adjustPanel.classList.remove('active');
+                                        if (sizePanel) sizePanel.classList.add('active');
+                                        if (paintPanel) paintPanel.classList.remove('active');
+                                        if (adjustBtn) adjustBtn.classList.remove('active');
+                                        if (sizeBtn) sizeBtn.classList.add('active');
+                                        if (paintBtn) paintBtn.classList.remove('active');
+                                        
+                                        const uploadPanel = document.getElementById('upload-panel');
+                                        if (uploadPanel) {
+                                            uploadPanel.style.display = 'block';
+                                            const uploadArea = document.getElementById('png-upload-area');
+                                            const sectionLabel = uploadPanel.querySelector('.section-label');
+                                            if (uploadArea) uploadArea.style.display = 'none';
+                                            if (sectionLabel) sectionLabel.style.display = 'none';
+                                            const cropButtons = document.getElementById('crop-buttons');
+                                            if (cropButtons) cropButtons.style.display = 'block';
+                                        }
+                                        
+                                        if (!cropperManuallyHidden) {
+                                            showCropper();
+                                        }
+                                        
+                                        console.log('✅ All UI setup complete');
+                                    }, 200);
+                                    
+                                    // Persist file
+                                    try {
+                                        await saveFileToDB(dbKey('png'), fileToProcess);
+                                        console.log('✅ File saved to DB');
+                                    } catch (dbError) {
+                                        console.warn('⚠️ DB save error (non-critical):', dbError);
+                                    }
+                                    
+                                    resolve();
+                                } catch (error) {
+                                    console.error('❌ Error in img.onload:', error);
+                                    reject(error);
+                                }
+                            };
+                            
+                            img.src = event.target.result;
+                        } catch (error) {
+                            console.error('❌ Error in reader.onload:', error);
+                            reject(error);
+                        }
+                    };
+                    
+                    reader.readAsDataURL(fileToProcess);
+                });
+            } catch (error) {
+                console.error('❌ Fatal error in processUploadedFile:', error);
+                showStatus('error', 'Failed to process image. Please try again.');
             }
-            
-            // Load image and show preview
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const img = new Image();
-                img.onload = async () => {
-                    rawUploadedImage = img; // Store raw image for editor
-                    fullOriginalImage = img; // Store full original uncropped image
-                    cropCoordinates = null; // Reset crop coordinates when new image is uploaded
-                    
-                    // Reset cropper state when new image is uploaded
-                    fullProcessedImageDataURL = null;
-                    cropperVisible = false;
-                    cropperManuallyHidden = false; // Reset flag for new image
-                    cropInitialized = false;
-                    const previewImg = document.getElementById('png-preview-img');
-                    if (previewImg) {
-                        previewImg.removeAttribute('data-cropper-fixed');
-                    }
-                    document.getElementById('png-preview').style.display = 'none';
-                    document.getElementById('crop-canvas').style.display = 'none';
-                    document.getElementById('show-cropper-btn').style.display = 'block';
-                    document.getElementById('hide-cropper-btn').style.display = 'none';
-                    
-                    // Auto-tune settings per new image
-                    autoTuneSettingsFromImage(img);
-                    // Update sliders/labels
-                    document.getElementById('contrast-slider').value = String(editorSettings.contrast);
-                    document.getElementById('brightness-slider').value = String(editorSettings.brightness);
-                    document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
-                    document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
-                    // Don't set preview image here - it will be set to processed version after processImage() runs
-                    // document.getElementById('png-preview-img').src = event.target.result;
-                    // Show crop buttons when image is uploaded
-                    document.getElementById('crop-buttons').style.display = 'block';
-                    // Don't show preview automatically - only show when "Show Cropper" is clicked
-                    // document.getElementById('png-preview').style.display = 'block';
-                    
-                    // Hide initial upload box and show all controls
-                    const initialUploadBox = document.getElementById('initial-upload-box');
-                    if (initialUploadBox) {
-                        initialUploadBox.style.display = 'none';
-                    }
-                    
-                    // Show action buttons
-                    const actionButtonsContainer = document.getElementById('action-buttons-container');
-                    if (actionButtonsContainer) {
-                        actionButtonsContainer.style.display = 'flex';
-                    }
-                    
-                    // Show price section
-                    const priceSection = document.getElementById('price-display-section');
-                    if (priceSection) {
-                        priceSection.style.display = 'block';
-                        // Update price immediately when section becomes visible
-                        updatePriceDisplay();
-                    }
-                    
-                    // Load STL for the selected grid size
-                    await loadSTLFromServer(selectedGridSize);
-                    
-                    // Ensure editor is visible so user can adjust before mapping
-                    showEditorPanel();
-                    processImage();
-                    
-                    // Open size panel and show cropper when image is first uploaded
-                    setTimeout(() => {
-                        // Open size panel
-                        document.getElementById('adjust-panel').classList.remove('active');
-                        document.getElementById('size-panel').classList.add('active');
-                        document.getElementById('paint-panel').classList.remove('active');
-                        document.getElementById('adjust-btn').classList.remove('active');
-                        document.getElementById('size-btn').classList.add('active');
-                        document.getElementById('paint-btn').classList.remove('active');
-                        
-                        // Make sure upload panel is visible for cropper
-                        const uploadPanel = document.getElementById('upload-panel');
-                        if (uploadPanel) {
-                            uploadPanel.style.display = 'block';
-                            // Hide upload area and label, keep only cropper visible
-                            const uploadArea = document.getElementById('png-upload-area');
-                            const sectionLabel = uploadPanel.querySelector('.section-label');
-                            if (uploadArea) uploadArea.style.display = 'none';
-                            if (sectionLabel) sectionLabel.style.display = 'none';
-                            // Show crop buttons
-                            const cropButtons = document.getElementById('crop-buttons');
-                            if (cropButtons) {
-                                cropButtons.style.display = 'block';
-                            }
-                        }
-                        
-                        // Show cropper
-                        if (!cropperManuallyHidden) {
-                            showCropper();
-                        }
-                    }, 200);
-
-                    // Persist converted file to IndexedDB for current grid size
-                    saveFileToDB(dbKey('png'), fileToProcess);
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(fileToProcess);
         }
 
         document.getElementById('png-input').addEventListener('change', async (e) => {
