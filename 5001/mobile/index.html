@@ -4859,34 +4859,26 @@
                 uploadBtnInput.style.zIndex = '10';
                 uploadBtnInput.style.pointerEvents = 'auto';
                 
-                // Connect the overlay input to the main input
-                uploadBtnInput.addEventListener('change', (e) => {
-                    console.log('Overlay input file selected:', e.target.files);
-                    // Transfer the file to the main input
-                    const mainInput = document.getElementById('png-input');
-                    if (mainInput && e.target.files && e.target.files.length > 0) {
+                // Directly process file from overlay input (bypasses DataTransfer API issues)
+                uploadBtnInput.addEventListener('change', async (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        console.log('Overlay input file selected, processing directly:', file.name);
+                        // Also update main input for consistency (but don't rely on it)
                         try {
-                            // Create a new FileList-like object and trigger change on main input
-                            const dataTransfer = new DataTransfer();
-                            dataTransfer.items.add(e.target.files[0]);
-                            mainInput.files = dataTransfer.files;
-                            
-                            // Trigger change event on main input to process the file
-                            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
-                            mainInput.dispatchEvent(changeEvent);
-                            console.log('File synced to main input and change event triggered');
-                        } catch (error) {
-                            console.error('Error syncing file to main input:', error);
-                            // Fallback: directly trigger the file processing
-                            if (typeof pngFile !== 'undefined') {
-                                pngFile = e.target.files[0];
-                                // Manually trigger the file processing logic
-                                const event = { target: { files: [pngFile] } };
-                                if (typeof document !== 'undefined' && document.getElementById('png-input')) {
-                                    document.getElementById('png-input').dispatchEvent(new Event('change', { bubbles: true }));
-                                }
+                            const mainInput = document.getElementById('png-input');
+                            if (mainInput) {
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+                                mainInput.files = dataTransfer.files;
                             }
+                        } catch (error) {
+                            console.warn('Could not sync to main input (non-critical):', error);
                         }
+                        // Directly process the file - this is the reliable method
+                        await processUploadedFile(file);
+                    } else {
+                        console.error('No file selected in overlay input');
                     }
                 });
                 
@@ -5081,15 +5073,31 @@
             btn.textContent = 'Processing...';
 
             try {
+                // Ensure processed image is available - process if needed
+                if (!processedImageData || processedImageData.width === 0 || processedImageData.height === 0) {
+                    console.log('processedImageData not available, calling processImage()');
+                    if (rawUploadedImage) {
+                        processImage();
+                        // Wait a bit for processing to complete
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } else {
+                        console.error('No rawUploadedImage available for processing');
+                        throw new Error('No image available. Please upload an image first.');
+                    }
+                }
+                
                 // Get the processed image from the canvas (matches what user sees)
-                let processedPngFile = pngFile;
-                // Use grid size for all pixelated modes (48x48, 75x75, 96x96)
+                let processedPngFile = null;
+                console.log('Creating processed PNG from processedImageData, size:', processedImageData?.width, 'x', processedImageData?.height);
+                
+                // Always use processedImageData if available (this has all user edits)
                 if (processedImageData && processedImageData.width > 0 && processedImageData.height > 0) {
                     const tempCanvas = document.createElement('canvas');
                     // Use grid size for all modes
                     tempCanvas.width = selectedGridSize;
                     tempCanvas.height = selectedGridSize;
                     const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.imageSmoothingEnabled = false;
                     
                     // Put the processed image data at grid size
                     tempCtx.putImageData(processedImageData, 0, 0);
@@ -5099,12 +5107,18 @@
                         tempCanvas.toBlob((blob) => {
                             if (blob) {
                                 processedPngFile = new File([blob], 'processed.png', { type: 'image/png' });
+                                console.log('Processed PNG file created, size:', blob.size, 'bytes');
+                            } else {
+                                console.error('Failed to create blob from processed canvas');
                             }
                             resolve();
                         }, 'image/png');
                     });
-                } else {
-                    // Fallback: use processed canvas if processedImageData not available
+                }
+                
+                // Fallback: use processed canvas if processedImageData still not available
+                if (!processedPngFile) {
+                    console.log('Falling back to processed canvas');
                     const processedCanvas = document.getElementById('processed-canvas');
                     if (processedCanvas && processedCanvas.width > 0) {
                         const tempCanvas = document.createElement('canvas');
@@ -5118,11 +5132,18 @@
                             tempCanvas.toBlob((blob) => {
                                 if (blob) {
                                     processedPngFile = new File([blob], 'processed.png', { type: 'image/png' });
+                                    console.log('Processed PNG from canvas, size:', blob.size, 'bytes');
                                 }
                                 resolve();
                             }, 'image/png');
                         });
                     }
+                }
+                
+                // Last resort: use original file (shouldn't happen, but prevents errors)
+                if (!processedPngFile) {
+                    console.warn('No processed image available, using original file (colors may not match 3D viewer)');
+                    processedPngFile = pngFile;
                 }
                 
                 // Generate and upload file for checkout
@@ -5182,15 +5203,31 @@
             document.getElementById('buy-now-btn').disabled = true;
 
             try {
+                // Ensure processed image is available - process if needed
+                if (!processedImageData || processedImageData.width === 0 || processedImageData.height === 0) {
+                    console.log('processedImageData not available, calling processImage()');
+                    if (rawUploadedImage) {
+                        processImage();
+                        // Wait a bit for processing to complete
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } else {
+                        console.error('No rawUploadedImage available for processing');
+                        throw new Error('No image available. Please upload an image first.');
+                    }
+                }
+                
                 // Get the processed image from the canvas (matches what user sees)
-                let processedPngFile = pngFile;
-                // Use grid size for all pixelated modes (48x48, 75x75, 96x96)
+                let processedPngFile = null;
+                console.log('Creating processed PNG from processedImageData, size:', processedImageData?.width, 'x', processedImageData?.height);
+                
+                // Always use processedImageData if available (this has all user edits)
                 if (processedImageData && processedImageData.width > 0 && processedImageData.height > 0) {
                     const tempCanvas = document.createElement('canvas');
                     // Use grid size for all modes
                     tempCanvas.width = selectedGridSize;
                     tempCanvas.height = selectedGridSize;
                     const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.imageSmoothingEnabled = false;
                     
                     // Put the processed image data at grid size
                     tempCtx.putImageData(processedImageData, 0, 0);
@@ -5200,12 +5237,18 @@
                         tempCanvas.toBlob((blob) => {
                             if (blob) {
                                 processedPngFile = new File([blob], 'processed.png', { type: 'image/png' });
+                                console.log('Processed PNG file created, size:', blob.size, 'bytes');
+                            } else {
+                                console.error('Failed to create blob from processed canvas');
                             }
                             resolve();
                         }, 'image/png');
                     });
-                } else {
-                    // Fallback: use processed canvas if processedImageData not available
+                }
+                
+                // Fallback: use processed canvas if processedImageData still not available
+                if (!processedPngFile) {
+                    console.log('Falling back to processed canvas');
                     const processedCanvas = document.getElementById('processed-canvas');
                     if (processedCanvas && processedCanvas.width > 0) {
                         const tempCanvas = document.createElement('canvas');
@@ -5219,11 +5262,18 @@
                             tempCanvas.toBlob((blob) => {
                                 if (blob) {
                                     processedPngFile = new File([blob], 'processed.png', { type: 'image/png' });
+                                    console.log('Processed PNG from canvas, size:', blob.size, 'bytes');
                                 }
                                 resolve();
                             }, 'image/png');
                         });
                     }
+                }
+                
+                // Last resort: use original file (shouldn't happen, but prevents errors)
+                if (!processedPngFile) {
+                    console.warn('No processed image available, using original file (colors may not match 3D viewer)');
+                    processedPngFile = pngFile;
                 }
                 
                 // Generate and upload file for checkout
