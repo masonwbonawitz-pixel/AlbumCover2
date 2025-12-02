@@ -364,7 +364,7 @@
         }
 
         .top-action-btn.active {
-            color: #333333;
+            color: #000000;
         }
 
         .top-action-btn .btn-icon {
@@ -855,7 +855,7 @@
                     <div class="canvas-wrapper">
                         <div class="canvas-label" id="mobile-canvas-label" style="display: none;">Processed (Posterized)</div>
                         <div style="position: relative; display: inline-block; width: 100%;">
-                            <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1; cursor: crosshair; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"></canvas>
+                            <canvas id="processed-canvas" class="editor-canvas" style="max-width:100%; width:100%; aspect-ratio:1/1; cursor: crosshair; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges;"></canvas>
                         </div>
                         <div style="display: flex; flex-direction: row; gap: 5px; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 0; width: 100%;">
                             <div style="display: flex; flex-direction: row; gap: 5px;">
@@ -916,7 +916,7 @@
                 <!-- PNG Preview with Crop Tool -->
                 <div id="png-preview" style="display: none; text-align: center; margin-top: 15px; width: 100%;">
                     <div id="crop-container" style="position: relative; display: inline-block; max-width: 400px; width: 100%; margin: 0 auto;">
-                        <img id="png-preview-img" style="width: 100%; max-width: 400px; height: auto; object-fit: contain; display: block; margin: 0 auto;" />
+                        <img id="png-preview-img" style="width: 100%; max-width: 400px; height: auto; object-fit: contain; display: block; margin: 0 auto; image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges;" />
                         <canvas id="crop-canvas" style="position: absolute; top: 0; left: 0; pointer-events: auto; display: none; border: none; background: transparent; z-index: 10; touch-action: none;"></canvas>
                     </div>
                 </div>
@@ -928,11 +928,20 @@
                 <div class="section-label" style="display: flex; align-items: center; justify-content: space-between;">
                     <span id="mobile-section-grid">2. Select Grid Size</span>
                     <button id="mobile-size-guide-btn" onclick="toggleSizeGuide()" style="background: transparent; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; display: flex; align-items: center; gap: 4px;">
-                        <span>📏</span>
-                        <span id="mobile-size-guide-btn-text">Size Guide</span>
-                        <span id="mobile-size-guide-chevron">▼</span>
+                        <span style="filter: grayscale(100%);">📏</span>
+                        <span id="mobile-size-guide-btn-text" style="color: #E87D3E;">Size Guide</span>
+                        <span id="mobile-size-guide-chevron" style="color: #E87D3E;">▼</span>
                     </button>
                 </div>
+                
+                <!-- Inline Size Guide Dropdown -->
+                <div id="size-guide-dropdown" style="display: none; margin-bottom: 15px; padding: 15px; background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 6px; width: 100%; box-sizing: border-box;">
+                    <h3 id="mobile-size-guide-title" style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: #333;">Size Guide</h3>
+                    <div id="mobile-size-guide-content" style="font-size: 12px; line-height: 1.6; color: #666;">
+                        <!-- Content will be loaded from JSON -->
+                    </div>
+                </div>
+                
                 <div class="grid-options">
                     <button class="grid-btn" data-size="48" id="mobile-grid-btn-48" onclick="selectGridSize(48)">48 × 48</button>
                     <button class="grid-btn active" data-size="75" id="mobile-grid-btn-75" onclick="selectGridSize(75)">75 × 75</button>
@@ -959,6 +968,13 @@
                 </div>
                 <div class="slider-control">
                     <div class="slider-label">
+                        <span id="mobile-slider-denoise-label">Denoise</span>
+                        <span id="denoise-value">0.0</span>
+                    </div>
+                    <input type="range" class="slider" id="denoise-slider" min="0" max="1" step="0.1" value="0" />
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
                         <span id="mobile-slider-tones-label">Tones</span>
                         <span id="tones-value">4</span>
                     </div>
@@ -968,7 +984,16 @@
 
             <!-- Painting (Collapsible) -->
             <div class="section collapsible-section" id="paint-panel">
-                <div class="section-label" id="mobile-section-painting">Painting</div>
+                <div class="section-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <button id="mobile-paint-mode-btn" onclick="togglePaintMode()" style="background: #E87D3E; border: 1px solid #E87D3E; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; display: flex; align-items: center; gap: 4px;">
+                        <span style="color: #FFFFFF;">🖌️ Paint</span>
+                    </button>
+                    <span id="mobile-section-painting" style="color: #FF6B35;">Painting</span>
+                    <button id="mobile-eraser-btn" onclick="toggleEraserMode()" style="background: transparent; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; display: flex; align-items: center; gap: 4px;">
+                        <span>🧹</span>
+                        <span style="color: #333;">Eraser</span>
+                    </button>
+                </div>
                 <div class="color-palette">
                     <div class="color-swatch selected" data-color="0,0,0" style="background: rgb(0,0,0); position: relative;" title="Black" onclick="selectPaintColor(0, 0, 0, this)">
                         <span id="mobile-color-black-title" style="position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #333; white-space: nowrap;">Black</span>
@@ -1034,7 +1059,7 @@
                     <div style="flex: 1; padding: 16px; background: #f0f0f0; border-radius: 8px; box-sizing: border-box; display: flex; align-items: center;">
                         <div style="font-size: 12px; color: #666; line-height: 1.6; text-align: left;">
                             <div><span id="mobile-label-dimensions">Dimensions:</span> <span id="price-dimensions">75 × 75</span></div>
-                            <div>Baseplate: <span id="baseplate-type">Framed</span></div>
+                            <div><span id="addons-label">Add-ons:</span> <span id="addons-display">None</span></div>
                         </div>
                     </div>
                 </div>
@@ -1387,6 +1412,10 @@
                 const el = document.getElementById('mobile-slider-tones-label');
                 if (el) el.textContent = textContent.slider_tones_label;
             }
+            if (textContent.slider_denoise_label) {
+                const el = document.getElementById('mobile-slider-denoise-label');
+                if (el) el.textContent = textContent.slider_denoise_label;
+            }
             if (textContent.label_dimensions) {
                 const el = document.getElementById('mobile-label-dimensions');
                 if (el) el.textContent = textContent.label_dimensions;
@@ -1582,6 +1611,19 @@
                 dimensionsEl.textContent = `${gridSize} × ${gridSize}`;
             }
             
+            // Update add-ons display
+            const addonsDisplayEl = document.getElementById('addons-display');
+            if (addonsDisplayEl) {
+                const addons = [];
+                if (standSelected) {
+                    addons.push('Stand');
+                }
+                if (selectedAddons.mounting) {
+                    addons.push('Nano wall mounting dots');
+                }
+                addonsDisplayEl.textContent = addons.length > 0 ? addons.join(', ') : 'None';
+            }
+            
             // Update stand price display
             const standPriceEl = document.getElementById('stand-price-display');
             if (standPriceEl) {
@@ -1652,6 +1694,7 @@
             brightness: 1.0,
             pixelSize: 75,
             tones: 4,
+            denoise: 0,
             blackPoint: 0,
             whitePoint: 255,
         };
@@ -1684,6 +1727,8 @@
         let processedZoomOffsetX = 0;
         let processedZoomOffsetY = 0;
         let isPanningProcessed = false;
+        let eraserMode = false; // Track if eraser mode is active
+        let paintMode = true; // Track if paint mode is active (default on)
         let processedPanStartX = 0, processedPanStartY = 0;
         let zoomMode = null; // 'zoom-in', 'zoom-out', or null
         let fullOriginalImage = null; // Store the full original uncropped image
@@ -2311,6 +2356,12 @@
 
             const processedCanvas = document.getElementById('processed-canvas');
             const processedCtx = processedCanvas.getContext('2d');
+            
+            // CRITICAL: Disable image smoothing immediately to prevent initial blur
+            processedCtx.imageSmoothingEnabled = false;
+            processedCtx.mozImageSmoothingEnabled = false;
+            processedCtx.webkitImageSmoothingEnabled = false;
+            processedCtx.msImageSmoothingEnabled = false;
 
             // Set canvas sizes - use container width for full display
             const container = document.getElementById('editor-panel');
@@ -2349,6 +2400,10 @@
             tempCanvas.width = pixelSize;
             tempCanvas.height = pixelSize;
             const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.imageSmoothingEnabled = false;
+            tempCtx.mozImageSmoothingEnabled = false;
+            tempCtx.webkitImageSmoothingEnabled = false;
+            tempCtx.msImageSmoothingEnabled = false;
             
             // If crop coordinates exist, crop from the full original image first
             if (cropCoordinates && cropCoordinates.size > 0) {
@@ -2357,6 +2412,10 @@
                 cropCanvas.width = cropCoordinates.size;
                 cropCanvas.height = cropCoordinates.size;
                 const cropCtx = cropCanvas.getContext('2d');
+                cropCtx.imageSmoothingEnabled = false;
+                cropCtx.mozImageSmoothingEnabled = false;
+                cropCtx.webkitImageSmoothingEnabled = false;
+                cropCtx.msImageSmoothingEnabled = false;
                 cropCtx.drawImage(rawUploadedImage, cropCoordinates.x, cropCoordinates.y, cropCoordinates.size, cropCoordinates.size, 0, 0, cropCoordinates.size, cropCoordinates.size);
                 
                 // Draw cropped image at small size (pixelation effect)
@@ -2373,44 +2432,114 @@
             // Get image data
             const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const data = imageData.data;
+            const width = tempCanvas.width;
+            const height = tempCanvas.height;
 
-            // Process each pixel: grayscale + percentile stretch + contrast/brightness + N-tone posterize
-            for (let i = 0; i < data.length; i += 4) {
-                // Convert to grayscale using luminosity method (perceputal brightness)
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            // STEP 1: Convert to grayscale with adjustments
+            const grayValues = new Float32Array(width * height);
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x) * 4;
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
 
-                // Percentile stretch using black/white points
-                const bp = editorSettings.blackPoint ?? 0;
-                const wp = editorSettings.whitePoint ?? 255;
-                gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
+                    // Percentile stretch using black/white points
+                    const bp = editorSettings.blackPoint ?? 0;
+                    const wp = editorSettings.whitePoint ?? 255;
+                    gray = (gray - bp) * 255 / Math.max(1, (wp - bp));
 
-                // Apply contrast and brightness
-                gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
-                gray = gray * editorSettings.brightness;
-                gray = Math.max(0, Math.min(255, gray));
-
-                // Posterize to 4 tones based on brightness using base palette [0,85,170,255]
-                // ALWAYS use 4 colors for all modes
-                const base = [0,85,170,255];
-                const n = 4; // Always 4 colors
-                const indices = [];
-                for (let k = 0; k < n; k++) {
-                    const idx = Math.round((k*(base.length-1))/(n-1));
-                    indices.push(base[idx]);
+                    // Apply contrast and brightness
+                    gray = ((gray / 255 - 0.5) * editorSettings.contrast + 0.5) * 255;
+                    gray = gray * editorSettings.brightness;
+                    gray = Math.max(0, Math.min(255, gray));
+                    
+                    grayValues[y * width + x] = gray;
                 }
-                // thresholds midpoints
-                let finalColor = indices[indices.length-1];
-                for (let t = 0; t < indices.length-1; t++) {
-                    const mid = (indices[t] + indices[t+1]) / 2;
-                    if (gray < mid) { finalColor = indices[t]; break; }
-                }
+            }
 
-                data[i] = finalColor;
-                data[i + 1] = finalColor;
-                data[i + 2] = finalColor;
+            // STEP 2: Apply denoise filter if needed
+            const denoiseLevel = editorSettings.denoise || 0;
+            if (denoiseLevel > 0.01) {
+                // Scale filter size smoothly: 0 = no filter, 0.1-0.5 = 3x3, 0.6-0.8 = 5x5, 0.9-1.0 = 7x7
+                // Interpolate filter size based on denoise level (0 to 1)
+                let filterSize;
+                if (denoiseLevel <= 0.5) {
+                    // 0.1 to 0.5: use 3x3 filter with variable intensity
+                    filterSize = 3;
+                } else if (denoiseLevel <= 0.8) {
+                    // 0.6 to 0.8: use 5x5 filter
+                    filterSize = 5;
+                } else {
+                    // 0.9 to 1.0: use 7x7 filter
+                    filterSize = 7;
+                }
+                
+                const radius = Math.floor(filterSize / 2);
+                const denoisedValues = new Float32Array(width * height);
+                
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const neighbors = [];
+                        
+                        // Collect neighboring pixels
+                        for (let dy = -radius; dy <= radius; dy++) {
+                            for (let dx = -radius; dx <= radius; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                
+                                // Check bounds
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                    neighbors.push(grayValues[ny * width + nx]);
+                                }
+                            }
+                        }
+                        
+                        // Calculate median
+                        neighbors.sort((a, b) => a - b);
+                        const median = neighbors[Math.floor(neighbors.length / 2)];
+                        
+                        // Blend between original and median based on denoise level
+                        // At denoiseLevel 0.1: very slight blend (90% original, 10% median)
+                        // At denoiseLevel 1.0: full blend (0% original, 100% median)
+                        const original = grayValues[y * width + x];
+                        const blended = original * (1 - denoiseLevel) + median * denoiseLevel;
+                        denoisedValues[y * width + x] = blended;
+                    }
+                }
+                
+                // Copy denoised values back
+                for (let i = 0; i < grayValues.length; i++) {
+                    grayValues[i] = denoisedValues[i];
+                }
+            }
+
+            // STEP 3: Apply tone quantization
+            const base = [0,85,170,255];
+            const n = editorSettings.tones || 4;
+            const indices = [];
+            for (let k = 0; k < n; k++) {
+                const idx = Math.round((k*(base.length-1))/(n-1));
+                indices.push(base[idx]);
+            }
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x) * 4;
+                    const gray = grayValues[y * width + x];
+                    
+                    // Quantize to N tones
+                    let finalColor = indices[indices.length-1];
+                    for (let t = 0; t < indices.length-1; t++) {
+                        const mid = (indices[t] + indices[t+1]) / 2;
+                        if (gray < mid) { finalColor = indices[t]; break; }
+                    }
+
+                    data[i] = finalColor;
+                    data[i + 1] = finalColor;
+                    data[i + 2] = finalColor;
+                }
             }
 
             tempCtx.putImageData(imageData, 0, 0);
@@ -2866,6 +2995,12 @@
             
             // Now get context AFTER canvas is properly sized
             const ctx = cropCanvas.getContext('2d');
+            
+            // Disable image smoothing for crisp pixels
+            ctx.imageSmoothingEnabled = false;
+            ctx.mozImageSmoothingEnabled = false;
+            ctx.webkitImageSmoothingEnabled = false;
+            ctx.msImageSmoothingEnabled = false;
             
             // Clear canvas completely
             ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
@@ -3801,6 +3936,57 @@
             });
             element.classList.add('selected');
             console.log('Selected paint color:', selectedPaintColor);
+            
+            // When selecting a color, automatically switch to paint mode
+            if (eraserMode) {
+                togglePaintMode();
+            }
+        }
+        
+        // Toggle paint mode
+        function togglePaintMode() {
+            paintMode = true;
+            eraserMode = false;
+            
+            // Update button styles
+            const paintBtn = document.getElementById('mobile-paint-mode-btn');
+            const eraserBtn = document.getElementById('mobile-eraser-btn');
+            
+            if (paintBtn) {
+                paintBtn.style.background = '#E87D3E';
+                paintBtn.style.borderColor = '#E87D3E';
+                paintBtn.querySelector('span').style.color = '#FFFFFF';
+            }
+            if (eraserBtn) {
+                eraserBtn.style.background = 'transparent';
+                eraserBtn.style.borderColor = '#333';
+                eraserBtn.querySelectorAll('span').forEach(span => span.style.color = '#333');
+            }
+            
+            console.log('Paint mode activated');
+        }
+        
+        // Toggle eraser mode
+        function toggleEraserMode() {
+            eraserMode = true;
+            paintMode = false;
+            
+            // Update button styles
+            const paintBtn = document.getElementById('mobile-paint-mode-btn');
+            const eraserBtn = document.getElementById('mobile-eraser-btn');
+            
+            if (paintBtn) {
+                paintBtn.style.background = 'transparent';
+                paintBtn.style.borderColor = '#333';
+                paintBtn.querySelector('span').style.color = '#E87D3E';
+            }
+            if (eraserBtn) {
+                eraserBtn.style.background = '#333';
+                eraserBtn.style.borderColor = '#333';
+                eraserBtn.querySelectorAll('span').forEach(span => span.style.color = '#FFFFFF');
+            }
+            
+            console.log('Eraser mode activated');
         }
 
         function zoomInProcessed() {
@@ -4061,10 +4247,20 @@
                         if (x >= 0 && x < imageWidth && y >= 0 && y < imageHeight) {
                             // Update pixel color in image data
                             const index = (y * imageWidth + x) * 4;
-                            processedImageData.data[index] = selectedPaintColor.r;     // R
-                            processedImageData.data[index + 1] = selectedPaintColor.g; // G
-                            processedImageData.data[index + 2] = selectedPaintColor.b; // B
-                            processedImageData.data[index + 3] = 255;                  // A
+                            
+                            if (eraserMode && originalProcessedImageData) {
+                                // Eraser mode: restore original pixel color
+                                processedImageData.data[index] = originalProcessedImageData.data[index];         // R
+                                processedImageData.data[index + 1] = originalProcessedImageData.data[index + 1]; // G
+                                processedImageData.data[index + 2] = originalProcessedImageData.data[index + 2]; // B
+                                processedImageData.data[index + 3] = originalProcessedImageData.data[index + 3]; // A
+                            } else {
+                                // Paint mode: use selected color
+                                processedImageData.data[index] = selectedPaintColor.r;     // R
+                                processedImageData.data[index + 1] = selectedPaintColor.g; // G
+                                processedImageData.data[index + 2] = selectedPaintColor.b; // B
+                                processedImageData.data[index + 3] = 255;                  // A
+                            }
                             painted = true;
                         }
                     }
@@ -4095,17 +4291,6 @@
                 } else if (zoomMode === 'zoom-out') {
                     // Zoom out from the clicked point
                     zoomToPoint(e.clientX, e.clientY, 1.3);
-                } else if (!isPainting && processedZoom > 1.0) {
-                    // Start panning when dragging (only if zoomed in and not painting)
-                    isDraggingPan = true;
-                    processedPanStartX = e.clientX;
-                    processedPanStartY = e.clientY;
-                    const startOffsetX = processedZoomOffsetX;
-                    const startOffsetY = processedZoomOffsetY;
-                    
-                    // Store start offsets in the event listener closure
-                    processedCanvas.dataset.panStartOffsetX = startOffsetX;
-                    processedCanvas.dataset.panStartOffsetY = startOffsetY;
                 } else if (processedImageData && !isDraggingPan) {
                     // Start painting (only if not in pan mode)
                     // Save state to undo stack before starting to paint
@@ -4231,15 +4416,19 @@
                     zoomToPoint(touch.clientX, touch.clientY, 1.3);
                 } else if (zoomMode === 'zoom-out') {
                     zoomToPoint(touch.clientX, touch.clientY, 1.3);
-                } else if (!isPainting && processedZoom > 1.0) {
-                    // Start panning
+                } else if (e.touches.length >= 2 && processedZoom > 1.0) {
+                    // Two-finger start: initialize pan
+                    isPainting = false; // Stop any painting
                     isDraggingPan = true;
-                    processedPanStartX = touch.clientX;
-                    processedPanStartY = touch.clientY;
+                    // Use center point between two fingers
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    processedPanStartX = (touch1.clientX + touch2.clientX) / 2;
+                    processedPanStartY = (touch1.clientY + touch2.clientY) / 2;
                     processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
                     processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
-                } else if (!isDraggingPan) {
-                    // Start painting
+                } else if (e.touches.length === 1 && !isDraggingPan) {
+                    // Single-finger paint (works even when zoomed in)
                     if (!isPainting) {
                         savePaintState();
                     }
@@ -4283,22 +4472,45 @@
                 
                 if (!processedImageData) return;
                 
-                const touch = e.touches[0];
                 const rect = processedCanvas.getBoundingClientRect();
                 
-                if (isDraggingPan && !isPainting) {
-                    // Pan the view
-                    const deltaX = touch.clientX - processedPanStartX;
-                    const deltaY = touch.clientY - processedPanStartY;
+                // Check for two-finger drag first (for panning)
+                if (e.touches.length >= 2 && processedZoom > 1.0) {
+                    // Two-finger pan: calculate center point between fingers
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const currentCenterX = (touch1.clientX + touch2.clientX) / 2;
+                    const currentCenterY = (touch1.clientY + touch2.clientY) / 2;
+                    
+                    // Stop painting if we're panning
+                    if (isPainting) {
+                        isPainting = false;
+                        updateUndoRedoButtons();
+                    }
+                    
+                    // Start panning if not already
+                    if (!isDraggingPan) {
+                        isDraggingPan = true;
+                        processedPanStartX = currentCenterX;
+                        processedPanStartY = currentCenterY;
+                        processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
+                        processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
+                    }
+                    
+                    // Calculate delta from start position
+                    const deltaX = currentCenterX - processedPanStartX;
+                    const deltaY = currentCenterY - processedPanStartY;
                     const startOffsetX = parseFloat(processedCanvas.dataset.panStartOffsetX || 0);
                     const startOffsetY = parseFloat(processedCanvas.dataset.panStartOffsetY || 0);
                     
+                    // Update pan position
                     processedZoomOffsetX = startOffsetX + deltaX;
                     processedZoomOffsetY = startOffsetY + deltaY;
                     constrainPanBounds(processedZoom);
                     redrawProcessedCanvas();
-                } else if (isPainting && !isDraggingPan) {
-                    // Continue painting
+                } else if (e.touches.length === 1 && !isDraggingPan && isPainting) {
+                    // Continue painting with single finger
+                    const touch = e.touches[0];
                     // Get actual displayed size and internal canvas size
                     const displayWidth = rect.width;
                     const displayHeight = rect.height;
@@ -4328,6 +4540,9 @@
                     if (paintPixelAt(normalizedX, normalizedY, processedCanvas)) {
                         redrawProcessedCanvas();
                     }
+                } else if (e.touches.length === 1 && isDraggingPan) {
+                    // Single finger while pan was active - stop panning
+                    isDraggingPan = false;
                 }
             });
             
@@ -4556,6 +4771,12 @@
             processImage();
         });
 
+        document.getElementById('denoise-slider').addEventListener('input', (e) => {
+            editorSettings.denoise = parseFloat(e.target.value);
+            document.getElementById('denoise-value').textContent = editorSettings.denoise.toFixed(1);
+            processImage();
+        });
+
         // Initialize Three.js
         function initThree() {
             // Don't reinitialize if already initialized
@@ -4608,9 +4829,9 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
 
-            // Grid
-            const gridHelper = new THREE.GridHelper(200, 20, 0xcccccc, 0xe0e0e0);
-            scene.add(gridHelper);
+            // Grid - REMOVED per user request (no grid plane in 3D viewer)
+            // const gridHelper = new THREE.GridHelper(200, 20, 0xcccccc, 0xe0e0e0);
+            // scene.add(gridHelper);
 
             // Animate
             function animate() {
@@ -5113,41 +5334,101 @@
                 return;
             }
             
-            console.log('Processing file:', file.name);
+            console.log('Processing file:', file.name, 'Type:', file.type);
+            
+            // Clear any previous error messages
+            const statusMessage = document.getElementById('status-message');
+            if (statusMessage) {
+                statusMessage.style.display = 'none';
+            }
             
             // Update global variables
             pngFile = file;
             
-            // Handle HEIC conversion if needed
+            // Detect file type
             let fileToProcess = file;
             const fileExtension = file.name.toLowerCase().split('.').pop();
-            const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
-                           file.type === 'image/heic' || file.type === 'image/heif';
+            const fileType = file.type.toLowerCase();
             
-            if (isHeic && typeof heic2any !== 'undefined') {
+            // List of supported standard formats
+            const supportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+            const isStandardFormat = supportedFormats.includes(fileType) || 
+                                    ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension);
+            
+            // Check for HEIC/HEIF
+            const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
+                           fileType === 'image/heic' || fileType === 'image/heif';
+            
+            // Convert HEIC/HEIF or other unsupported formats
+            if (isHeic) {
                 try {
-                    showStatus('loading', 'Converting HEIC...');
-                    const convertedBlob = await heic2any({
-                        blob: file,
-                        toType: 'image/jpeg',
-                        quality: 0.92
-                    });
-                    const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
-                    fileToProcess = new File([convertedFile], file.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
-                        type: 'image/jpeg' 
-                    });
+                    if (typeof heic2any !== 'undefined') {
+                        // Use heic2any for HEIC/HEIF conversion
+                        showStatus('loading', 'Converting HEIC image...');
+                        const convertedBlob = await Promise.race([
+                            heic2any({
+                                blob: file,
+                                toType: 'image/jpeg',
+                                quality: 0.92
+                            }),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Conversion timeout')), 30000))
+                        ]);
+                        const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
+                        fileToProcess = new File([convertedFile], file.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
+                            type: 'image/jpeg' 
+                        });
+                        console.log('✅ HEIC image converted successfully');
+                        // Hide loading message after successful conversion
+                        if (statusMessage) {
+                            statusMessage.style.display = 'none';
+                        }
+                    } else {
+                        console.error('heic2any library not loaded');
+                        showStatus('error', 'Sorry, unable to display HEIC image. Please try a different image format or contact us for assistance.');
+                        return;
+                    }
                 } catch (error) {
                     console.error('HEIC conversion error:', error);
-                    showStatus('error', 'Failed to convert HEIC image');
+                    showStatus('error', 'Sorry, unable to convert HEIC image. Please try a different image format or contact us for assistance.');
                     return;
                 }
+            } else if (!isStandardFormat) {
+                // For other unsupported formats, try to load directly (browser might support it)
+                console.log('⚠️ Non-standard format detected, attempting to load directly');
             }
             
-            // Load image
+            // Load image with timeout
             const reader = new FileReader();
             reader.onload = async (event) => {
                 const img = new Image();
-                img.onload = async () => {
+                
+                // Set up timeout for image loading
+                let imageLoadTimeout;
+                const imageLoadPromise = new Promise((resolve, reject) => {
+                    img.onload = () => {
+                        clearTimeout(imageLoadTimeout);
+                        resolve();
+                    };
+                    img.onerror = (error) => {
+                        clearTimeout(imageLoadTimeout);
+                        reject(error);
+                    };
+                    imageLoadTimeout = setTimeout(() => {
+                        reject(new Error('Image load timeout'));
+                    }, 15000);
+                    img.src = event.target.result;
+                });
+                
+                try {
+                    await imageLoadPromise;
+                } catch (error) {
+                    console.error('Image load error:', error);
+                    showStatus('error', 'Sorry, unable to display image. Please try a different image or contact us for assistance.');
+                    return;
+                }
+                
+                // Image loaded successfully - continue processing
+                (async () => {
                     console.log('Image loaded, setting up editor...');
                     
                     // Store image
@@ -5220,18 +5501,29 @@
                         canvasContainer.style.display = 'none';
                     }
                     
-                    // HIDE upload panel - only show on opening screen, not after upload
+                    // AUTO-OPEN SIZE PANEL with cropper visible
                     const uploadPanel = document.getElementById('upload-panel');
                     if (uploadPanel) {
-                        uploadPanel.style.display = 'none';
+                        uploadPanel.style.display = 'block';
                     }
+                    
+                    // Automatically show size panel and cropper
+                    setTimeout(() => {
+                        togglePanel('size');
+                        // Auto-show cropper
+                        setTimeout(() => {
+                            if (rawUploadedImage) {
+                                showCropper();
+                            }
+                        }, 150);
+                    }, 200);
                     
                     // Force a repaint to ensure visibility
                     if (editorPanel) {
                         editorPanel.offsetHeight; // Trigger reflow
                     }
                     
-                    console.log('✅ Editor panel shown inline (no screen switch)');
+                    console.log('✅ Editor panel shown inline with size panel auto-opened');
                     
                     // Save to IndexedDB
                     try {
@@ -5239,18 +5531,20 @@
                     } catch (error) {
                         console.error('Save to DB error:', error);
                     }
-                };
-                img.onerror = (error) => {
-                    console.error('Image load error:', error);
-                    showStatus('error', 'Failed to load image');
-                };
-                img.src = event.target.result;
+                })(); // End of async image processing function
             };
             reader.onerror = (error) => {
                 console.error('FileReader error:', error);
-                showStatus('error', 'Failed to read file');
+                showStatus('error', 'Sorry, unable to read file. Please try a different image or contact us for assistance.');
             };
-            reader.readAsDataURL(fileToProcess);
+            
+            // Read file with timeout
+            try {
+                reader.readAsDataURL(fileToProcess);
+            } catch (error) {
+                console.error('File read error:', error);
+                showStatus('error', 'Sorry, unable to display image. Please try a different image or contact us for assistance.');
+            }
         }
 
         // Main input handler - only process once
@@ -5736,30 +6030,19 @@
             }, 500);
         });
     </script>
-    <!-- Size Guide Modal -->
-    <div id="size-guide-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; overflow-y: auto;">
-        <div style="max-width: 90%; margin: 20px auto; background: white; border-radius: 8px; padding: 20px; position: relative;">
-            <button onclick="toggleSizeGuide()" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; font-size: 24px; cursor: pointer; color: #666;">×</button>
-            <h2 id="mobile-size-guide-title" style="margin-bottom: 20px; font-size: 20px;">Size Guide</h2>
-            <div id="mobile-size-guide-content" style="line-height: 1.6;">
-                <!-- Content will be loaded from JSON -->
-            </div>
-            <div style="margin-top: 20px; text-align: right;">
-                <button onclick="toggleSizeGuide()" style="padding: 8px 16px; background: #333; color: white; border: none; border-radius: 4px; cursor: pointer; font-family: inherit;">Close Size Guide</button>
-            </div>
-        </div>
-    </div>
-
     <script>
         function toggleSizeGuide() {
-            const modal = document.getElementById('size-guide-modal');
-            const btn = document.getElementById('mobile-size-guide-chevron');
-            if (modal.style.display === 'none' || !modal.style.display) {
-                modal.style.display = 'block';
-                if (btn) btn.textContent = '▲';
+            const dropdown = document.getElementById('size-guide-dropdown');
+            const chevron = document.getElementById('mobile-size-guide-chevron');
+            const btnText = document.getElementById('mobile-size-guide-btn-text');
+            
+            if (dropdown.style.display === 'none' || !dropdown.style.display) {
+                dropdown.style.display = 'block';
+                if (chevron) chevron.textContent = '▲';
+                // Text is already orange from initial styling
             } else {
-                modal.style.display = 'none';
-                if (btn) btn.textContent = '▼';
+                dropdown.style.display = 'none';
+                if (chevron) chevron.textContent = '▼';
             }
         }
 

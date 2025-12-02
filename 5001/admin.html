@@ -945,6 +945,12 @@
                             <span>4</span>
                         </div>
                     </div>
+                    <div class="slider-control">
+                        <div class="slider-label">
+                            <span id="admin-slider-denoise-label" contenteditable="true" style="cursor: text; padding: 2px 4px; border-radius: 3px; transition: background-color 0.2s; display: inline-block;">Denoise</span>
+                            <span>1</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Painting -->
@@ -1373,7 +1379,7 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
                             </div>
                         </div>
                         <div class="order-files">
-                            <a href="/admin/orders/download/${order.order_id}/model.obj" class="file-download-btn">Download OBJ</a>
+                            <a href="/admin/orders/download/${order.order_id}/model.3mf" class="file-download-btn">Download 3MF</a>
                         </div>
                     </div>
                 `;
@@ -1634,6 +1640,10 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
             if (textContent.slider_tones_label) {
                 const el = document.getElementById('admin-slider-tones-label');
                 if (el) el.textContent = textContent.slider_tones_label;
+            }
+            if (textContent.slider_denoise_label) {
+                const el = document.getElementById('admin-slider-denoise-label');
+                if (el) el.textContent = textContent.slider_denoise_label;
             }
             if (textContent.label_dimensions) {
                 const el = document.getElementById('admin-label-dimensions');
@@ -1953,6 +1963,7 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
                     slider_contrast_label: document.getElementById('admin-slider-contrast-label') ? document.getElementById('admin-slider-contrast-label').textContent.trim() : 'Contrast',
                     slider_brightness_label: document.getElementById('admin-slider-brightness-label') ? document.getElementById('admin-slider-brightness-label').textContent.trim() : 'Brightness',
                     slider_tones_label: document.getElementById('admin-slider-tones-label') ? document.getElementById('admin-slider-tones-label').textContent.trim() : 'Tones',
+                    slider_denoise_label: document.getElementById('admin-slider-denoise-label') ? document.getElementById('admin-slider-denoise-label').textContent.trim() : 'Denoise',
                     label_dimensions: document.getElementById('admin-label-dimensions') ? document.getElementById('admin-label-dimensions').textContent.trim() : 'Dimensions:',
                     label_addons: document.getElementById('admin-label-addons') ? document.getElementById('admin-label-addons').textContent.trim() : 'Addons:',
                     label_48x48: document.getElementById('admin-label-48x48') ? document.getElementById('admin-label-48x48').textContent.trim() : '48×48:',
