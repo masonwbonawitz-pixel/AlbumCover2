@@ -50,7 +50,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <!-- Load heic2any library for HEIC/HEIF conversion -->
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js" 
+            onerror="console.error('Failed to load heic2any from primary CDN')"></script>
+    <!-- Fallback CDN -->
+    <script>
+        // Wait a bit and check if heic2any loaded, if not try alternative
+        setTimeout(() => {
+            if (typeof heic2any === 'undefined' && typeof window !== 'undefined') {
+                console.warn('heic2any not loaded from primary CDN, trying alternative...');
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/heic2any@0.0.4/dist/heic2any.min.js';
+                script.onerror = () => console.error('Failed to load heic2any from fallback CDN');
+                document.head.appendChild(script);
+            }
+        }, 500);
+    </script>
     <script src="/js/shopifyCart.js" onerror="console.warn('Shopify Cart script failed to load - continuing without it')"></script>
     <style>
         * {
@@ -1029,7 +1044,7 @@
                 <div class="top-action-btn" id="upload-btn" style="cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; position: relative;">
                     <div class="btn-icon">↑</div>
                     <div class="btn-text">Upload</div>
-                    <input type="file" id="png-input-upload-btn" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;" />
+                    <input type="file" id="png-input-upload-btn" accept="image/*" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;" />
                 </div>
                 <button class="top-action-btn" id="size-btn" onclick="togglePanel('size')">
                     <div class="btn-icon">□</div>
@@ -1044,7 +1059,7 @@
                     <div class="btn-text">Paint</div>
                 </button>
             </div>
-            <input type="file" id="png-input" class="file-input" accept="image/*,.png,.jpg,.jpeg,.heic,.heif" style="display: none;" />
+            <input type="file" id="png-input" class="file-input" accept="image/*" style="display: none;" />
         </div>
 
             <!-- Price Display Section -->
@@ -1880,7 +1895,14 @@
                         // Only auto-show if user hasn't manually hidden it
                         if (!cropperManuallyHidden) {
                             setTimeout(() => {
+                                // Only show cropper if user hasn't manually hidden it
+                            if (!cropperManuallyHidden) {
                                 showCropper();
+                            } else {
+                                // Cropper was manually hidden, show the show button instead
+                                document.getElementById('show-cropper-btn').style.display = 'block';
+                                document.getElementById('hide-cropper-btn').style.display = 'none';
+                            }
                             }, 100);
                         }
                     };
@@ -2061,7 +2083,14 @@
                                     cropButtons.style.display = 'block';
                                 }
                             }
-                            showCropper();
+                            // Only show cropper if user hasn't manually hidden it
+                            if (!cropperManuallyHidden) {
+                                showCropper();
+                            } else {
+                                // Cropper was manually hidden, show the show button instead
+                                document.getElementById('show-cropper-btn').style.display = 'block';
+                                document.getElementById('hide-cropper-btn').style.display = 'none';
+                            }
                         }
                     }, 100);
                 }
@@ -4273,6 +4302,20 @@
         // Add click and drag handlers to processed canvas for pixel painting
         let isPainting = false;
         
+        // Helper function to check if paint panel is active
+        function isPaintPanelActive() {
+            const paintPanel = document.getElementById('paint-panel');
+            return paintPanel && paintPanel.classList.contains('active');
+        }
+        
+        // Helper function to check if adjust or size panel is active (for zoom/drag)
+        function isAdjustOrSizePanelActive() {
+            const adjustPanel = document.getElementById('adjust-panel');
+            const sizePanel = document.getElementById('size-panel');
+            return (adjustPanel && adjustPanel.classList.contains('active')) ||
+                   (sizePanel && sizePanel.classList.contains('active'));
+        }
+        
         // Set up paint event listeners (called after DOM loads and when canvas is recreated)
         function setupPaintHandlers() {
             const processedCanvas = document.getElementById('processed-canvas');
@@ -4291,8 +4334,16 @@
                 } else if (zoomMode === 'zoom-out') {
                     // Zoom out from the clicked point
                     zoomToPoint(e.clientX, e.clientY, 1.3);
-                } else if (processedImageData && !isDraggingPan) {
-                    // Start painting (only if not in pan mode)
+                } else if (processedZoom > 1.0 && isAdjustOrSizePanelActive() && !isDraggingPan) {
+                    // On Adjust/Size tabs when zoomed: start panning
+                    isDraggingPan = true;
+                    isPainting = false;
+                    processedPanStartX = e.clientX;
+                    processedPanStartY = e.clientY;
+                    processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
+                    processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
+                } else if (processedImageData && !isDraggingPan && isPaintPanelActive()) {
+                    // Start painting (only if paint panel is active and not in pan mode)
                     // Save state to undo stack before starting to paint
                     if (!isPainting) {
                         savePaintState();
@@ -4348,8 +4399,8 @@
                     constrainPanBounds(processedZoom);
                     
                     redrawProcessedCanvas();
-                } else if (isPainting && processedImageData && !isDraggingPan) {
-                    // Continue painting (only if not in pan mode)
+                } else if (isPainting && processedImageData && !isDraggingPan && isPaintPanelActive()) {
+                    // Continue painting (only if paint panel is active and not in pan mode)
                     const rect = processedCanvas.getBoundingClientRect();
                     
                     // Get actual displayed size and internal canvas size
@@ -4417,7 +4468,7 @@
                 } else if (zoomMode === 'zoom-out') {
                     zoomToPoint(touch.clientX, touch.clientY, 1.3);
                 } else if (e.touches.length >= 2 && processedZoom > 1.0) {
-                    // Two-finger start: initialize pan
+                    // Two-finger start: always initialize pan (works on any tab when zoomed)
                     isPainting = false; // Stop any painting
                     isDraggingPan = true;
                     // Use center point between two fingers
@@ -4427,8 +4478,17 @@
                     processedPanStartY = (touch1.clientY + touch2.clientY) / 2;
                     processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
                     processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
-                } else if (e.touches.length === 1 && !isDraggingPan) {
-                    // Single-finger paint (works even when zoomed in)
+                } else if (processedZoom > 1.0 && isAdjustOrSizePanelActive() && e.touches.length === 1 && !isDraggingPan) {
+                    // On Adjust/Size tabs when zoomed: single-finger drag for panning
+                    isDraggingPan = true;
+                    isPainting = false;
+                    const touch = e.touches[0];
+                    processedPanStartX = touch.clientX;
+                    processedPanStartY = touch.clientY;
+                    processedCanvas.dataset.panStartOffsetX = processedZoomOffsetX;
+                    processedCanvas.dataset.panStartOffsetY = processedZoomOffsetY;
+                } else if (e.touches.length === 1 && !isDraggingPan && isPaintPanelActive()) {
+                    // Single-finger paint (only if paint panel is active)
                     if (!isPainting) {
                         savePaintState();
                     }
@@ -4508,8 +4568,20 @@
                     processedZoomOffsetY = startOffsetY + deltaY;
                     constrainPanBounds(processedZoom);
                     redrawProcessedCanvas();
-                } else if (e.touches.length === 1 && !isDraggingPan && isPainting) {
-                    // Continue painting with single finger
+                } else if (e.touches.length === 1 && isDraggingPan && isAdjustOrSizePanelActive()) {
+                    // Continue one-finger pan on Adjust/Size tabs when zoomed
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - processedPanStartX;
+                    const deltaY = touch.clientY - processedPanStartY;
+                    const startOffsetX = parseFloat(processedCanvas.dataset.panStartOffsetX || 0);
+                    const startOffsetY = parseFloat(processedCanvas.dataset.panStartOffsetY || 0);
+                    
+                    processedZoomOffsetX = startOffsetX + deltaX;
+                    processedZoomOffsetY = startOffsetY + deltaY;
+                    constrainPanBounds(processedZoom);
+                    redrawProcessedCanvas();
+                } else if (e.touches.length === 1 && !isDraggingPan && isPainting && isPaintPanelActive()) {
+                    // Continue painting with single finger (only if paint panel is active)
                     const touch = e.touches[0];
                     // Get actual displayed size and internal canvas size
                     const displayWidth = rect.width;
@@ -5350,51 +5422,242 @@
             const fileExtension = file.name.toLowerCase().split('.').pop();
             const fileType = file.type.toLowerCase();
             
-            // List of supported standard formats
-            const supportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-            const isStandardFormat = supportedFormats.includes(fileType) || 
-                                    ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension);
+            // List of formats that browsers can directly display (no conversion needed)
+            const browserSupportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
+            const browserSupportedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+            const isBrowserSupported = browserSupportedFormats.includes(fileType) || 
+                                      browserSupportedExtensions.includes(fileExtension);
             
-            // Check for HEIC/HEIF
+            // Check for HEIC/HEIF - comprehensive detection
             const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || 
-                           fileType === 'image/heic' || fileType === 'image/heif';
+                           fileType === 'image/heic' || fileType === 'image/heif' ||
+                           (file.name.toLowerCase().includes('heic') || file.name.toLowerCase().includes('heif'));
             
-            // Convert HEIC/HEIF or other unsupported formats
+            // Get format name for error messages
+            const formatName = isHeic ? 'HEIC' : (fileExtension.toUpperCase() || 'this format');
+            
+            // For HEIC files, try loading directly first (some browsers may support it)
+            // Only convert if direct load fails
+            let needsConversion = false;
+            
             if (isHeic) {
+                console.log('HEIC file detected - trying direct load first:', { 
+                    name: file.name, 
+                    type: file.type,
+                    extension: fileExtension
+                });
+                
+                // Quick test: try to load HEIC directly
                 try {
-                    if (typeof heic2any !== 'undefined') {
-                        // Use heic2any for HEIC/HEIF conversion
-                        showStatus('loading', 'Converting HEIC image...');
-                        const convertedBlob = await Promise.race([
-                            heic2any({
-                                blob: file,
-                                toType: 'image/jpeg',
-                                quality: 0.92
-                            }),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('Conversion timeout')), 30000))
-                        ]);
-                        const convertedFile = convertedBlob instanceof Array ? convertedBlob[0] : convertedBlob;
-                        fileToProcess = new File([convertedFile], file.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
-                            type: 'image/jpeg' 
-                        });
-                        console.log('✅ HEIC image converted successfully');
-                        // Hide loading message after successful conversion
-                        if (statusMessage) {
-                            statusMessage.style.display = 'none';
-                        }
-                    } else {
-                        console.error('heic2any library not loaded');
-                        showStatus('error', 'Sorry, unable to display HEIC image. Please try a different image format or contact us for assistance.');
-                        return;
+                    const testUrl = URL.createObjectURL(file);
+                    const testImg = new Image();
+                    
+                    const canLoadDirectly = await Promise.race([
+                        new Promise((resolve, reject) => {
+                            testImg.onload = () => {
+                                URL.revokeObjectURL(testUrl);
+                                resolve(true);
+                            };
+                            testImg.onerror = () => {
+                                URL.revokeObjectURL(testUrl);
+                                reject(new Error('HEIC direct load failed'));
+                            };
+                            testImg.src = testUrl;
+                        }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Load timeout')), 3000))
+                    ]);
+                    
+                    if (canLoadDirectly) {
+                        console.log('✅ Browser supports HEIC directly - no conversion needed');
+                        needsConversion = false;
                     }
-                } catch (error) {
-                    console.error('HEIC conversion error:', error);
-                    showStatus('error', 'Sorry, unable to convert HEIC image. Please try a different image format or contact us for assistance.');
+                } catch (directLoadError) {
+                    console.log('HEIC direct load failed, will convert:', directLoadError.message);
+                    needsConversion = true;
+                }
+            } else if (!isBrowserSupported) {
+                // For other non-supported formats, convert
+                needsConversion = true;
+            }
+            
+            // Universal image converter - automatically converts any non-standard format to JPEG
+            // Works like Canva/CloudConvert - accepts all images and converts as needed
+            if (needsConversion) {
+                console.log('Non-standard image format detected - attempting automatic conversion:', { 
+                    name: file.name, 
+                    type: file.type, 
+                    extension: fileExtension, 
+                    size: file.size,
+                    isHeic: isHeic,
+                    formatName: formatName
+                });
+                
+                showStatus('loading', `Converting ${formatName} image...`);
+                
+                let conversionSuccess = false;
+                
+                // METHOD 1: Try heic2any for HEIC/HEIF files
+                if (isHeic) {
+                    try {
+                        console.log('Attempting HEIC conversion with heic2any...');
+                        
+                        // Wait for library to be available
+                        let attempts = 0;
+                        let heic2anyFunc = null;
+                        while (attempts < 5 && !heic2anyFunc) {
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            if (typeof heic2any !== 'undefined') {
+                                heic2anyFunc = heic2any;
+                            } else if (typeof window !== 'undefined' && window.heic2any) {
+                                heic2anyFunc = window.heic2any;
+                            } else if (typeof globalThis !== 'undefined' && globalThis.heic2any) {
+                                heic2anyFunc = globalThis.heic2any;
+                            }
+                            attempts++;
+                        }
+                        
+                        if (heic2anyFunc) {
+                            console.log('heic2any library found, converting...');
+                            
+                            // Ensure file is a Blob
+                            let fileBlob = file instanceof Blob ? file : await file.arrayBuffer().then(ab => new Blob([ab], { type: file.type || 'image/heic' }));
+                            
+                            // Convert HEIC to JPEG
+                            const conversionResult = await Promise.race([
+                                heic2anyFunc({
+                                    blob: fileBlob,
+                                    toType: 'image/jpeg',
+                                    quality: 0.92,
+                                    multiple: false
+                                }),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('HEIC conversion timeout')), 30000))
+                            ]);
+                            
+                            // Handle result
+                            let convertedBlob = Array.isArray(conversionResult) ? conversionResult[0] : conversionResult;
+                            
+                            if (convertedBlob && convertedBlob instanceof Blob) {
+                                fileToProcess = new File([convertedBlob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), { 
+                                    type: 'image/jpeg' 
+                                });
+                                conversionSuccess = true;
+                                console.log('✅ HEIC conversion successful via heic2any');
+                            }
+                        }
+                    } catch (heicError) {
+                        console.warn('heic2any conversion failed, trying alternative methods:', heicError);
+                    }
+                }
+                
+                // METHOD 2: Canvas-based conversion (works for any format browser can decode)
+                if (!conversionSuccess) {
+                    try {
+                        console.log('Attempting canvas-based conversion...');
+                        
+                        // Read file and try to load as image
+                        const fileUrl = URL.createObjectURL(file);
+                        const img = new Image();
+                        
+                        const imageLoadPromise = new Promise((resolve, reject) => {
+                            img.onload = () => resolve();
+                            img.onerror = () => reject(new Error('Image failed to load'));
+                            img.src = fileUrl;
+                            
+                            // Timeout after 10 seconds
+                            setTimeout(() => reject(new Error('Image load timeout')), 10000);
+                        });
+                        
+                        await imageLoadPromise;
+                        
+                        // Image loaded successfully - convert to JPEG via canvas
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        
+                        // Convert canvas to JPEG blob
+                        const blob = await new Promise(resolve => {
+                            canvas.toBlob(resolve, 'image/jpeg', 0.92);
+                        });
+                        
+                        if (blob) {
+                            fileToProcess = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { 
+                                type: 'image/jpeg' 
+                            });
+                            conversionSuccess = true;
+                            console.log('✅ Image converted successfully via canvas');
+                        }
+                        
+                        // Clean up object URL
+                        URL.revokeObjectURL(fileUrl);
+                        
+                    } catch (canvasError) {
+                        console.warn('Canvas conversion failed:', canvasError);
+                    }
+                }
+                
+                // METHOD 3: Server-side conversion (fallback if client-side fails)
+                if (!conversionSuccess) {
+                    try {
+                        console.log('Attempting server-side conversion...');
+                        showStatus('loading', `Converting ${formatName} image on server...`);
+                        
+                        // Upload file to server for conversion
+                        const formData = new FormData();
+                        formData.append('image', file);
+                        
+                        const serverResponse = await fetch('/api/convert-image', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (serverResponse.ok) {
+                            // Get converted image blob from server
+                            const convertedBlob = await serverResponse.blob();
+                            
+                            // Check if it's an image (either by type or size - JPEG should have size > 0)
+                            if (convertedBlob && convertedBlob.size > 0) {
+                                // Create File from blob with explicit JPEG type
+                                fileToProcess = new File([convertedBlob], file.name.replace(/\.[^/.]+$/, '.jpg'), { 
+                                    type: 'image/jpeg' 
+                                });
+                                conversionSuccess = true;
+                                console.log('✅ Image converted successfully via server', { 
+                                    size: convertedBlob.size, 
+                                    type: convertedBlob.type || 'image/jpeg' 
+                                });
+                            } else {
+                                throw new Error('Server returned empty or invalid image data');
+                            }
+                        } else {
+                            // Try to get error message from server
+                            let errorMsg = 'Server conversion failed';
+                            try {
+                                const errorData = await serverResponse.json();
+                                errorMsg = errorData.error || errorMsg;
+                            } catch (e) {
+                                errorMsg = `Server error: ${serverResponse.status} ${serverResponse.statusText}`;
+                            }
+                            throw new Error(errorMsg);
+                        }
+                    } catch (serverError) {
+                        console.warn('Server-side conversion failed:', serverError);
+                        // Don't set conversionSuccess = false here yet, let it fall through to final error
+                    }
+                }
+                
+                // If all conversion methods failed
+                if (!conversionSuccess) {
+                    console.error('All conversion methods failed for file:', file.name);
+                    showStatus('error', `Sorry, unable to convert ${formatName} image. Please convert it to JPEG format using an online converter. Contact us if you need assistance.`);
                     return;
                 }
-            } else if (!isStandardFormat) {
-                // For other unsupported formats, try to load directly (browser might support it)
-                console.log('⚠️ Non-standard format detected, attempting to load directly');
+                
+                // Hide loading message after successful conversion
+                if (statusMessage) {
+                    statusMessage.style.display = 'none';
+                }
             }
             
             // Load image with timeout
@@ -5423,7 +5686,8 @@
                     await imageLoadPromise;
                 } catch (error) {
                     console.error('Image load error:', error);
-                    showStatus('error', 'Sorry, unable to display image. Please try a different image or contact us for assistance.');
+                    const formatName = file.name.split('.').pop().toUpperCase() || 'image';
+                    showStatus('error', `Sorry, unable to display ${formatName} image. Please convert it to JPEG format using an online converter. Contact us if you need assistance.`);
                     return;
                 }
                 
@@ -5436,11 +5700,50 @@
                     fullOriginalImage = img;
                     cropCoordinates = null;
                     
-                    // Reset cropper state
+                    // Reset cropper state completely
                     fullProcessedImageDataURL = null;
                     cropperVisible = false;
                     cropperManuallyHidden = false;
                     cropInitialized = false;
+                    cropperZoom = 1.0;
+                    cropperPanX = 0;
+                    cropperPanY = 0;
+                    isDraggingCrop = false;
+                    isResizingCrop = false;
+                    isPanningCropper = false;
+                    resizeEdge = '';
+                    cropX = 0;
+                    cropY = 0;
+                    cropSize = 0;
+                    
+                    // RESET ALL SLIDERS TO DEFAULTS
+                    editorSettings.denoise = 0;
+                    editorSettings.brightness = 1.0;
+                    editorSettings.contrast = 1.2;
+                    editorSettings.tones = 4;
+                    
+                    // Update slider UI values
+                    const denoiseSlider = document.getElementById('denoise-slider');
+                    const brightnessSlider = document.getElementById('brightness-slider');
+                    const contrastSlider = document.getElementById('contrast-slider');
+                    const tonesSlider = document.getElementById('tones-slider');
+                    
+                    if (denoiseSlider) {
+                        denoiseSlider.value = '0';
+                        document.getElementById('denoise-value').textContent = '0.0';
+                    }
+                    if (brightnessSlider) {
+                        brightnessSlider.value = '1.0';
+                        document.getElementById('brightness-value').textContent = '1.0';
+                    }
+                    if (contrastSlider) {
+                        contrastSlider.value = '1.2';
+                        document.getElementById('contrast-value').textContent = '1.2';
+                    }
+                    if (tonesSlider) {
+                        tonesSlider.value = '4';
+                        document.getElementById('tones-value').textContent = '4';
+                    }
                     
                     // Update UI elements
                     document.getElementById('png-upload-area').classList.add('has-file');
@@ -5470,12 +5773,8 @@
                         updatePriceDisplay();
                     }
                     
-                    // Auto-tune settings
-                    autoTuneSettingsFromImage(img);
-                    document.getElementById('contrast-slider').value = String(editorSettings.contrast);
-                    document.getElementById('brightness-slider').value = String(editorSettings.brightness);
-                    document.getElementById('contrast-value').textContent = editorSettings.contrast.toFixed(1);
-                    document.getElementById('brightness-value').textContent = editorSettings.brightness.toFixed(1);
+                    // Skip auto-tune - use default values (already set above)
+                    // Auto-tune was removed per user request - all sliders reset to defaults on new image
                     
                     // Load STL
                     try {
@@ -5513,7 +5812,14 @@
                         // Auto-show cropper
                         setTimeout(() => {
                             if (rawUploadedImage) {
+                                // Only show cropper if user hasn't manually hidden it
+                            if (!cropperManuallyHidden) {
                                 showCropper();
+                            } else {
+                                // Cropper was manually hidden, show the show button instead
+                                document.getElementById('show-cropper-btn').style.display = 'block';
+                                document.getElementById('hide-cropper-btn').style.display = 'none';
+                            }
                             }
                         }, 150);
                     }, 200);
@@ -5535,7 +5841,8 @@
             };
             reader.onerror = (error) => {
                 console.error('FileReader error:', error);
-                showStatus('error', 'Sorry, unable to read file. Please try a different image or contact us for assistance.');
+                const formatName = file.name.split('.').pop().toUpperCase() || 'image';
+                showStatus('error', `Sorry, unable to read ${formatName} file. Please convert it to JPEG format using an online converter. Contact us if you need assistance.`);
             };
             
             // Read file with timeout
@@ -5543,7 +5850,8 @@
                 reader.readAsDataURL(fileToProcess);
             } catch (error) {
                 console.error('File read error:', error);
-                showStatus('error', 'Sorry, unable to display image. Please try a different image or contact us for assistance.');
+                const formatName = file.name.split('.').pop().toUpperCase() || 'image';
+                showStatus('error', `Sorry, unable to read ${formatName} file. Please convert it to JPEG format using an online converter. Contact us if you need assistance.`);
             }
         }
 
@@ -6017,8 +6325,13 @@
                         }
                         
                         // Show cropper
+                        // Only show cropper if user hasn't manually hidden it
                         if (!cropperManuallyHidden) {
                             showCropper();
+                        } else {
+                            // Cropper was manually hidden, show the show button instead
+                            document.getElementById('show-cropper-btn').style.display = 'block';
+                            document.getElementById('hide-cropper-btn').style.display = 'none';
                         }
                     }
                 }, 200);

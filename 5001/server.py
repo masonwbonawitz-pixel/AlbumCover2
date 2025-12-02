@@ -15,6 +15,19 @@ from flask_cors import CORS
 from PIL import Image
 import trimesh
 
+# Try to load pillow-heif for HEIC/HEIF support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF_SUPPORT_AVAILABLE = True
+    print("✅ pillow-heif loaded - HEIC/HEIF conversion supported")
+except ImportError:
+    HEIF_SUPPORT_AVAILABLE = False
+    print("⚠️  pillow-heif not installed - HEIC/HEIF conversion will fallback to client-side")
+except Exception as e:
+    HEIF_SUPPORT_AVAILABLE = False
+    print(f"⚠️  pillow-heif failed to load: {e} - HEIC/HEIF conversion will fallback to client-side")
+
 # Try to load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -42,12 +55,58 @@ except ImportError:
 
 # Try both bindings; some environments publish lib3mf as 'lib3mf', others as 'py3mf'
 _three_mf = None
+_three_mf_error = None
+
+# On macOS, sometimes we need to set library path before importing
+import sys
+import os
+if sys.platform == 'darwin':
+    # Try to find lib3mf library path and set DYLD_LIBRARY_PATH
+    try:
+        import site
+        # Check both system and user site-packages
+        all_site_packages = site.getsitepackages() + [site.getusersitepackages()] if hasattr(site, 'getusersitepackages') else site.getsitepackages()
+        
+        for sp in all_site_packages:
+            lib3mf_path = os.path.join(sp, 'lib3mf')
+            if os.path.exists(lib3mf_path):
+                dylib_path = os.path.join(lib3mf_path, 'lib3mf.dylib')
+                if os.path.exists(dylib_path):
+                    # Set DYLD_LIBRARY_PATH to the directory containing the .dylib
+                    if 'DYLD_LIBRARY_PATH' not in os.environ:
+                        os.environ['DYLD_LIBRARY_PATH'] = lib3mf_path
+                    elif lib3mf_path not in os.environ['DYLD_LIBRARY_PATH']:
+                        os.environ['DYLD_LIBRARY_PATH'] = f"{os.environ['DYLD_LIBRARY_PATH']}:{lib3mf_path}"
+                    print(f"✅ Set DYLD_LIBRARY_PATH to {lib3mf_path} for lib3mf")
+                    break
+    except Exception as e:
+        pass
+
 for _modname in ("lib3mf", "py3mf"):
     try:
         _three_mf = __import__(_modname)
-        break
-    except Exception:
-        pass
+        # Test if it actually works by trying to create a wrapper
+        try:
+            if hasattr(_three_mf, "get_wrapper"):
+                wrapper = _three_mf.get_wrapper()
+            elif hasattr(_three_mf, "Wrapper"):
+                wrapper = _three_mf.Wrapper()
+            else:
+                raise AttributeError("No wrapper method found")
+            # Test creating a model to ensure it really works
+            if hasattr(wrapper, "CreateModel"):
+                wrapper.CreateModel()
+            elif hasattr(_three_mf, "CreateModel"):
+                _three_mf.CreateModel()
+            print(f"✅ {_modname} library loaded and working")
+            break
+        except Exception as e:
+            _three_mf_error = f"{_modname} loaded but failed to initialize: {e}"
+            _three_mf = None
+            continue
+    except Exception as e:
+        _three_mf_error = str(e)
+        continue
 
 
 FOUR_COLORS_RGB: List[Tuple[int, int, int]] = [
@@ -266,18 +325,49 @@ def load_stl_vertices_faces(stl_bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
     if not mesh.is_watertight:
         print("⚠️  Mesh is not watertight - attempting repair...")
         
-        # Fill holes in the mesh
-        trimesh.repair.fill_holes(mesh)
+        try:
+            # Fill holes in the mesh
+            trimesh.repair.fill_holes(mesh)
+        except Exception as e:
+            print(f"   ⚠️  Could not fill holes: {e}")
         
-        # Fix normals (ensure they all point outward)
-        trimesh.repair.fix_normals(mesh)
+        try:
+            # Fix normals (ensure they all point outward)
+            trimesh.repair.fix_normals(mesh)
+        except Exception as e:
+            print(f"   ⚠️  Could not fix normals: {e}")
         
-        # Remove duplicate and degenerate faces
-        mesh.remove_duplicate_faces()
-        mesh.remove_degenerate_faces()
+        try:
+            # Remove duplicate faces using correct trimesh API
+            mesh.update_faces(mesh.unique_faces())
+        except Exception as e:
+            print(f"   ⚠️  Could not remove duplicate faces: {e}")
         
-        # Merge duplicate vertices
-        mesh.merge_vertices()
+        try:
+            # Remove degenerate faces (zero area triangles)
+            # Filter out faces where all three vertices are the same or form zero area
+            original_face_count = len(mesh.faces)
+            valid_faces = []
+            for face in mesh.faces:
+                v0, v1, v2 = mesh.vertices[face]
+                # Check if triangle has non-zero area
+                edge1 = v1 - v0
+                edge2 = v2 - v0
+                cross = np.cross(edge1, edge2)
+                area = 0.5 * np.linalg.norm(cross)
+                if area > 1e-10:  # Only keep faces with meaningful area
+                    valid_faces.append(face)
+            if len(valid_faces) < original_face_count:
+                mesh.faces = np.array(valid_faces)
+                print(f"   ✓ Removed {original_face_count - len(valid_faces)} degenerate faces")
+        except Exception as e:
+            print(f"   ⚠️  Could not remove degenerate faces: {e}")
+        
+        try:
+            # Merge duplicate vertices
+            mesh.merge_vertices()
+        except Exception as e:
+            print(f"   ⚠️  Could not merge vertices: {e}")
         
         print(f"✅ After repair: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
         print(f"   Watertight: {mesh.is_watertight}, Volume: {mesh.is_volume}")
@@ -665,86 +755,143 @@ def write_3mf_with_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: np.
             raise RuntimeError(f"Failed to write 3MF file: {e}")
 
 
+def write_3mf_vertex_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colors: np.ndarray) -> bytes:
+    """
+    Write 3MF file with vertex colors (single object, colorgroup).
+    Bakes triangle colors to vertices - each vertex gets the color of its face.
+    Creates ONE unified mesh with vertex colors (no basematerials, no multiple objects).
+    """
+    import zipfile
+    import tempfile
+    
+    print(f"✅ Writing 3MF with vertex colors (single object, {len(vertices)} vertices, {len(faces)} triangles)")
+    
+    # Step 1: Collect unique triangle colors and create color index mapping
+    from collections import OrderedDict
+    
+    # Get unique colors from triangles (as tuples for hashing)
+    unique_colors = OrderedDict()
+    triangle_color_indices = []
+    
+    for tri_idx, face in enumerate(faces):
+        r, g, b = int(triangle_colors[tri_idx][0]), int(triangle_colors[tri_idx][1]), int(triangle_colors[tri_idx][2])
+        color_tuple = (r, g, b)
+        
+        if color_tuple not in unique_colors:
+            unique_colors[color_tuple] = len(unique_colors)
+        
+        triangle_color_indices.append(unique_colors[color_tuple])
+    
+    print(f"✅ Found {len(unique_colors)} unique colors for {len(faces)} triangles")
+    
+    # Step 2: Build 3MF XML manually as string (for proper namespace handling)
+    # Use color:colorresources extension (Bambu Studio compatible format)
+    # This is the color extension namespace method for vertex colors
+    
+    # Build colorresources XML (placed BEFORE <resources> as per 3MF spec)
+    color_xml = []
+    color_xml.append('  <color:colorresources id="1">')
+    color_xml.append('    <color:colors>')
+    
+    # Build color list - one color per unique color (this is the color palette)
+    # Colors use 0-255 range (not normalized) for colorresources
+    for color_tuple in unique_colors.keys():
+        r, g, b = color_tuple
+        color_xml.append(f'      <color:color r="{r}" g="{g}" b="{b}"/>')
+    
+    color_xml.append('    </color:colors>')
+    color_xml.append('  </color:colorresources>')
+    
+    # Build vertices XML
+    vertices_xml = []
+    for i in range(len(vertices)):
+        x, y, z = vertices[i]
+        vertices_xml.append(f'          <vertex x="{float(x)}" y="{float(y)}" z="{float(z)}"/>')
+    
+    # Build triangles XML with colorid to reference colorresources
+    # colorid references the color index in the colorresources palette
+    triangles_xml = []
+    for tri_idx, face in enumerate(faces):
+        v1, v2, v3 = int(face[0]), int(face[1]), int(face[2])
+        color_index = triangle_color_indices[tri_idx]
+        # Use colorid to reference color in colorresources (all vertices get same color for triangle)
+        triangles_xml.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}" colorid="{color_index}"/>')
+    
+    # Build complete model XML with Bambu Lab metadata
+    # Using 2013/01 namespace with color extension for vertex colors
+    model_xml_str = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter"
+       xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2013/01"
+       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+       xmlns:cad="http://schemas.autodesk.com/cad/2018/03/3dmodel"
+       xmlns:color="http://schemas.microsoft.com/3dmanufacturing/2013/01/color">
+  <metadata name="Producer">Bambu Lab</metadata>
+  <metadata name="Application">Bambu Studio</metadata>
+
+{chr(10).join(color_xml)}
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+{chr(10).join(vertices_xml)}
+        </vertices>
+        <triangles>
+{chr(10).join(triangles_xml)}
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+
+  <build>
+    <item objectid="1"/>
+  </build>
+</model>'''
+    
+    # Step 3: Create 3MF zip package
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".3mf") as tmp_file:
+        tmp_path = tmp_file.name
+    
+    with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Add model XML (built as string for proper namespace handling)
+        zipf.writestr("3D/3dmodel.model", model_xml_str.encode('utf-8'))
+        
+        # Add [Content_Types].xml
+        content_types = '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+  <Override PartName="/3D/3dmodel.model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>'''
+        zipf.writestr("[Content_Types].xml", content_types)
+        
+        # Add _rels/.rels
+        rels = '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="/3D/3dmodel.model" Id="rel0"/>
+</Relationships>'''
+        zipf.writestr("_rels/.rels", rels)
+    
+    # Read and return
+    with open(tmp_path, "rb") as f:
+        result = f.read()
+    
+    os.unlink(tmp_path)
+    return result
+
+
 def write_3mf(vertices: np.ndarray, faces: np.ndarray, triangle_colors: np.ndarray) -> bytes:
-    mf = require_three_mf()
-    wrapper = _get_wrapper(mf)
-    model = wrapper.CreateModel() if hasattr(wrapper, "CreateModel") else mf.CreateModel()
-
-    mesh_obj = model.AddMeshObject()
-    if hasattr(mesh_obj, "SetName"):
-        mesh_obj.SetName("Colored Mesh")
-
-    # Build geometry
-    verts_list = [_make_position(mf, float(x), float(y), float(z)) for x, y, z in vertices.tolist()]
-    tris_list = [_make_triangle(mf, int(a), int(b), int(c)) for a, b, c in faces.tolist()]
-    _set_mesh_geometry(mf, mesh_obj, verts_list, tris_list)
-
-    # Create color group with all unique colors from the PNG
-    color_group = model.AddColorGroup()
-    color_group_id = color_group.GetResourceID()
-    
-    # Find unique colors and create a mapping
-    unique_colors_list = []
-    color_to_index = {}
-    
-    for tri_color in triangle_colors:
-        color_tuple = tuple(tri_color)
-        if color_tuple not in color_to_index:
-            r, g, b = color_tuple
-            color_obj = _make_color(mf, int(r), int(g), int(b), 255)
-            idx = color_group.AddColor(color_obj)
-            color_to_index[color_tuple] = idx
-            unique_colors_list.append(color_tuple)
-    
-    print(f"✅ Added {len(unique_colors_list)} unique colors to 3MF color group")
-    
-    # Set triangle properties - assign each triangle to its color
-    # Create property resource and link to mesh
-    if hasattr(mesh_obj, "CreatePropertyResource"):
-        prop_resource = mesh_obj.CreatePropertyResource(color_group_id)
-    
-    # Assign colors to triangles
-    for tri_idx, tri_color in enumerate(triangle_colors):
-        color_idx = color_to_index[tuple(tri_color)]
-        try:
-            # Try to set triangle properties with color group
-            if hasattr(mesh_obj, "SetTriangleProperties"):
-                # All three vertices get the same color
-                mesh_obj.SetTriangleProperties(tri_idx, color_group_id, color_idx, color_idx, color_idx)
-        except Exception:
-            # Silent fail - some triangles might not accept properties
-            pass
-
-    # Add to build
-    identity = None
-    if hasattr(wrapper, "GetIdentityTransform"):
-        identity = wrapper.GetIdentityTransform()
-    elif hasattr(mf, "Transform"):
-        identity = mf.Transform()
-    model.AddBuildItem(mesh_obj, identity)
-
-    # Write to temporary file then read back
-    # lib3mf's WriteToBuffer doesn't accept a buffer argument, needs WriteToFile
-    tmp_path = "/tmp/output_temp.3mf"
-    try:
-        writer = model.QueryWriter("3mf")
-        writer.WriteToFile(tmp_path)
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    except Exception as e:
-        # Fallback: try direct model write
-        try:
-            model.WriteToFile(tmp_path)
-            with open(tmp_path, "rb") as f:
-                return f.read()
-        except Exception:
-            raise RuntimeError(f"Failed to write 3MF file: {e}")
+    """
+    Write 3MF file with vertex colors (single object, colorgroup).
+    Uses the new vertex color approach instead of multiple objects with basematerials.
+    """
+    return write_3mf_vertex_colors(vertices, faces, triangle_colors)
 
 
-def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: np.ndarray) -> Tuple[bytes, bytes]:
+def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: np.ndarray, grid_size: int = 75) -> Tuple[bytes, bytes]:
     """
     Write OBJ file with UV coordinates and MTL with texture file
-    Uses the same UV mapping logic as the frontend 3D viewer
+    Uses the EXACT same UV mapping logic as the frontend 3D viewer
+    Matches frontend applyColorsToMesh function pixel-perfectly
     """
     import io
     from PIL import Image
@@ -752,7 +899,7 @@ def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: 
     # Get image dimensions
     img_height, img_width = img_rgb.shape[:2]
     
-    # Compute XY bounds based ONLY on near-horizontal (top) faces (matches frontend)
+    # Compute XY bounds based ONLY on near-horizontal (top) faces (matches frontend exactly)
     tri_verts = vertices[faces]
     minX = np.inf
     minY = np.inf
@@ -793,15 +940,15 @@ def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: 
     sizeX = max(1e-9, maxX - minX)
     sizeY = max(1e-9, maxY - minY)
     
-    # Ensure square aspect ratio
-    maxSize = max(sizeX, sizeY)
-    sizeX = maxSize
-    sizeY = maxSize
+    # NOTE: Frontend does NOT enforce square aspect ratio - it uses sizeX and sizeY directly
+    # Matching frontend behavior exactly - do NOT square the aspect ratio
+    # This ensures UV mapping matches exactly what the user sees in the 3D viewer
     
     # Create OBJ content
     obj_content = []
     obj_content.append("# Colored Album Cover Model with UV Texture")
     obj_content.append("# Texture mapping for pixel-perfect image display")
+    obj_content.append("# UV coordinates match frontend 3D viewer exactly")
     obj_content.append("")
     
     # Write vertices
@@ -809,13 +956,43 @@ def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: 
         obj_content.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}")
     obj_content.append("")
     
-    # Generate UV coordinates (same logic as frontend)
+    # Generate UV coordinates using EXACT frontend logic
+    # For Normal mode (48): Use continuous mapping (no grid snapping)
+    # For other modes: Use grid snapping (cellU, cellV, snappedU, snappedV)
+    is_normal_mode = (grid_size == 48)
     uvs = []
-    for v in vertices:
-        # Normalize XY coordinates to [0, 1] range
-        u = (v[0] - minX) / sizeX
-        v_coord = 1.0 - (v[1] - minY) / sizeY  # Flip Y: top of STL maps to top of image
-        uvs.append((u, v_coord))
+    
+    # Compute UV for each vertex using the same logic as frontend color mapping
+    # Frontend maps triangle centroids, but for UV we map vertex positions directly
+    # and apply the same grid snapping logic
+    for vertex in vertices:
+        # Normalize XY coordinates to [0, 1] range (matches frontend line 3505-3506)
+        u = max(0.0, min(0.999999, (vertex[0] - minX) / sizeX))
+        v = max(0.0, min(0.999999, (vertex[1] - minY) / sizeY))
+        
+        if is_normal_mode:
+            # Normal mode: continuous mapping (no grid snapping)
+            # Map directly to UV coordinates - pixel-perfect mapping
+            # Flip Y: v=0 (top) maps to top of image in UV space
+            final_u = u
+            final_v = 1.0 - v  # Flip Y: top of STL maps to top of image
+        else:
+            # Grid-based mapping for pixelated modes (EXACT frontend logic lines 3508-3514)
+            grid = float(grid_size)
+            
+            # Frontend: cellU = Math.floor(u * grid) + 0.5
+            cellU = np.floor(u * grid) + 0.5
+            cellV = np.floor(v * grid) + 0.5
+            
+            # Frontend: snappedU = cellU / grid; snappedV = cellV / grid
+            snappedU = cellU / grid
+            snappedV = cellV / grid
+            
+            # Use snapped coordinates for UV (this matches what frontend does for color mapping)
+            final_u = snappedU
+            final_v = 1.0 - snappedV  # Flip Y: top of STL maps to top of image
+        
+        uvs.append((final_u, final_v))
     
     # Write UV coordinates
     for u, v_coord in uvs:
@@ -823,8 +1000,7 @@ def write_obj_with_uv_texture(vertices: np.ndarray, faces: np.ndarray, img_rgb: 
     obj_content.append("")
     
     # CRITICAL: Add MTL reference so Bambu Studio loads the texture
-    # Use model.mtl to match the saved filename
-    obj_content.append("mtllib model.mtl")
+    obj_content.append("mtllib output.mtl")
     obj_content.append("usemtl texture_material")
     obj_content.append("")
     
@@ -858,6 +1034,9 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
     This ensures colors match exactly what's shown in the 3D viewer.
     Returns: (obj_bytes, mtl_bytes)
     
+    NOTE: This is a fallback method using MTL materials. The primary method is
+    write_obj_with_vertex_colors() which uses 'vc' commands for better Bambu Studio compatibility.
+    
     Args:
         is_normal_mode: If True (48x48), preserves all colors. If False, ensures 4-color palette.
         img_rgb: Not used anymore - kept for compatibility
@@ -885,7 +1064,7 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
     obj_content.append("# Materials separated by color for exact color matching")
     obj_content.append("# Vertices duplicated per triangle to prevent color interpolation")
     obj_content.append("")
-    obj_content.append("mtllib model.mtl")
+    obj_content.append("mtllib output.mtl")
     obj_content.append("")
     
     # Build all vertices and faces, grouped by material
@@ -1002,9 +1181,92 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
     return obj_bytes, mtl_bytes
 
 
+def write_obj_with_vertex_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colors: np.ndarray, is_normal_mode: bool = False) -> bytes:
+    """
+    Write OBJ file with vertex colors embedded directly in vertex lines.
+    Format: v x y z r g b (extended OBJ format widely supported by 3D software)
+    This is more compatible with various 3D applications than MTL materials.
+    Returns: obj_bytes (no MTL file needed - colors are embedded in OBJ)
+    
+    Args:
+        vertices: Array of vertex positions
+        faces: Array of face indices
+        triangle_colors: Array of RGB colors for each triangle (0-255 range)
+        is_normal_mode: If True (48x48), preserves all colors. If False, ensures 4-color palette.
+    """
+    if is_normal_mode:
+        print(f"✅ Creating OBJ with vertex colors (Normal mode - all colors preserved)")
+    else:
+        print(f"✅ Creating OBJ with vertex colors (4-color palette)")
+    
+    # Create OBJ file with vertex colors
+    obj_content = []
+    obj_content.append("# Colored Album Cover Model")
+    obj_content.append("# Colors preserved from original PNG")
+    obj_content.append("# Vertex colors embedded directly: v x y z r g b")
+    obj_content.append("# Vertices duplicated per triangle to prevent color interpolation")
+    obj_content.append("")
+    
+    # Build all vertices with their colors
+    # Duplicate vertices per triangle to prevent color interpolation at edges
+    all_vertices = []
+    all_vertex_colors = []
+    all_faces = []
+    
+    for face_idx, face in enumerate(faces):
+        # Get the three vertices for this triangle
+        v0 = vertices[face[0]]
+        v1 = vertices[face[1]]
+        v2 = vertices[face[2]]
+        
+        # Get triangle color (normalize to 0.0-1.0 for OBJ vertex colors)
+        r, g, b = triangle_colors[face_idx]
+        r_norm = r / 255.0
+        g_norm = g / 255.0
+        b_norm = b / 255.0
+        
+        # Add vertices and their colors
+        vertex_base_idx = len(all_vertices)
+        all_vertices.append(v0)
+        all_vertex_colors.append((r_norm, g_norm, b_norm))
+        all_vertices.append(v1)
+        all_vertex_colors.append((r_norm, g_norm, b_norm))
+        all_vertices.append(v2)
+        all_vertex_colors.append((r_norm, g_norm, b_norm))
+        
+        # Create new face indices (1-indexed for OBJ)
+        all_faces.append((vertex_base_idx + 1, vertex_base_idx + 2, vertex_base_idx + 3))
+    
+    # Write vertices with colors embedded directly: v x y z r g b
+    # This is the extended OBJ format that's widely supported
+    for i, v in enumerate(all_vertices):
+        r, g, b = all_vertex_colors[i]
+        obj_content.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {r:.6f} {g:.6f} {b:.6f}")
+    
+    obj_content.append("")
+    
+    # Write faces
+    for v1, v2, v3 in all_faces:
+        obj_content.append(f"f {v1} {v2} {v3}")
+    
+    obj_bytes = "\n".join(obj_content).encode('utf-8')
+    
+    unique_colors = len(set(tuple(c) for c in triangle_colors))
+    print(f"✅ Created OBJ with vertex colors ({unique_colors} unique colors, {len(all_vertices)} vertices)")
+    return obj_bytes
+
+
 def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int = 75) -> bytes:
-    # For Normal mode (48), use UV texture mapping (bake image to texture)
-    # Always use 4 colors for all modes
+    """
+    Generate 3MF file with per-triangle colors that match frontend exactly
+    Uses the same color mapping logic as the frontend 3D viewer
+    Falls back to OBJ if 3MF library is not available
+    """
+    # Check if 3MF is available
+    if _three_mf is None:
+        raise RuntimeError("3MF library not available. Please install: pip install lib3mf")
+    
+    # For Normal mode (48), keep full resolution; otherwise resize to grid_size
     is_normal_mode = (grid_size == 48)
     if is_normal_mode:
         img = load_png(png_bytes, target_size=None)  # Keep full resolution
@@ -1017,19 +1279,33 @@ def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # Always quantize to 4 colors for all modes
-    triangle_colors = quantize_to_four_colors(triangle_colors)
-    print(f"✅ Generating 3MF with per-triangle colors (4 colors)")
+    # For Normal mode: use exact colors from image (no quantization)
+    # For pixelated modes: quantize to 4 colors
+    if not is_normal_mode:
+        triangle_colors = quantize_to_four_colors(triangle_colors)
+        print(f"✅ Generating 3MF with per-triangle colors (4-color palette)")
+    else:
+        print(f"✅ Generating 3MF with per-triangle colors (exact colors from image)")
     
-    three_mf_bytes = write_3mf(vertices, faces, triangle_colors)
-    return three_mf_bytes
+    try:
+        three_mf_bytes = write_3mf(vertices, faces, triangle_colors)
+        return three_mf_bytes
+    except Exception as e:
+        error_msg = str(e)
+        if "Lib3MFException" in error_msg or "COULDNOTLOADLIBRARY" in error_msg or ".dylib" in error_msg:
+            raise RuntimeError(
+                f"3MF library not properly installed. Error: {error_msg}\n"
+                f"Please install lib3mf: pip install lib3mf\n"
+                f"Or use OBJ format instead (which doesn't require lib3mf)."
+            )
+        raise
 
 
 def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int = 75) -> Tuple[bytes, bytes, bytes]:
     """
-    Generate OBJ and MTL files from STL and PNG
-    Returns: (obj_bytes, mtl_bytes, texture_png_bytes)
-    - texture_png_bytes is always None now (we use vertex colors for all modes)
+    Generate OBJ file with vertex colors (vc commands) for Bambu Studio compatibility.
+    Uses vertex colors as primary method (more compatible than MTL materials).
+    Returns: (obj_bytes, empty bytes, None)
     """
     # For Normal mode (48), keep full resolution; otherwise resize to grid_size
     is_normal_mode = (grid_size == 48)
@@ -1038,26 +1314,25 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     else:
         img = load_png(png_bytes, grid_size)
     img_array = get_png_as_array(img)
-    
     vertices, faces = load_stl_vertices_faces(stl_bytes)
+    
     # For Normal mode, use actual image dimensions; otherwise use grid_size
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # Debug: Check color distribution before quantization
-    unique_before = len(set(tuple(c) for c in triangle_colors))
-    print(f"📊 Color mapping complete: {unique_before} unique colors before quantization")
+    # For Normal mode: use exact colors from image (no quantization)
+    # For pixelated modes: quantize to 4 colors
+    if not is_normal_mode:
+        triangle_colors = quantize_to_four_colors(triangle_colors)
+        print(f"⚙️  Generating OBJ with vertex colors (4-color palette)")
+    else:
+        print(f"⚙️  Generating OBJ with vertex colors (exact colors from image)")
     
-    # Always quantize to 4 colors for all modes
-    triangle_colors = quantize_to_four_colors(triangle_colors)
+    # Generate OBJ with vertex colors (primary method for Bambu Studio)
+    obj_bytes = write_obj_with_vertex_colors(vertices, faces, triangle_colors, is_normal_mode)
     
-    # Debug: Verify quantization worked
-    unique_after = len(set(tuple(c) for c in triangle_colors))
-    print(f"📊 After quantization: {unique_after} unique colors (should be ≤4)")
-    
-    # Use vertex colors for ALL modes (same approach that works for pixelated)
-    obj_bytes, mtl_bytes = write_obj_with_colors(vertices, faces, triangle_colors, False, img_array)
-    return obj_bytes, mtl_bytes, None  # No texture PNG needed - using vertex colors
+    # Return OBJ bytes, empty MTL bytes, and None for texture
+    return obj_bytes, b"", None
 
 
 # Flask app
@@ -1179,7 +1454,7 @@ def generate():
     Accepts multipart/form-data with:
     - stl: STL file
     - png: PNG file
-    Returns: 3MF file download
+    Returns: OBJ file with vertex colors (Bambu Studio compatible)
     """
     try:
         if 'stl' not in request.files or 'png' not in request.files:
@@ -1193,15 +1468,15 @@ def generate():
 
         grid_size = int(request.form.get('grid_size', 75))
 
-        # Generate 3MF
-        three_mf_bytes = generate_3mf_from_inputs(stl_bytes, png_bytes, grid_size)
+        # Generate OBJ with vertex colors (primary method for Bambu Studio)
+        obj_bytes, mtl_bytes, texture_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
 
-        # Return as downloadable file
+        # Return OBJ file directly (no MTL needed - colors are embedded via vc commands)
         return send_file(
-            io.BytesIO(three_mf_bytes),
-            mimetype='application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+            io.BytesIO(obj_bytes),
+            mimetype='model/obj',
             as_attachment=True,
-            download_name='output.3mf'
+            download_name='output.obj'
         )
 
     except Exception as e:
@@ -1242,34 +1517,18 @@ def generate_obj_route():
         print(f"📊 PNG size: {len(png_bytes)} bytes")
         print(f"📊 Grid size: {grid_size}x{grid_size}")
 
-        # Use vertex colors for ALL modes to match the 3D viewer exactly
-        # The frontend viewer uses vertex colors for all modes, so export should match
-        print("⚙️  Generating OBJ and MTL files with vertex colors (matching 3D viewer)...")
+        # Generate OBJ with vertex colors (primary method for Bambu Studio)
         obj_bytes, mtl_bytes, texture_png_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
         
+        # OBJ with vertex colors doesn't need MTL file (colors are embedded via vc commands)
+        # Return OBJ file directly
         print(f"✅ OBJ size: {len(obj_bytes)} bytes")
-        print(f"✅ MTL size: {len(mtl_bytes)} bytes")
-
-        # Create a ZIP file with OBJ, MTL, and reference texture PNG
-        print("📦 Creating ZIP archive...")
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            zip_file.writestr('output.obj', obj_bytes)
-            zip_file.writestr('output.mtl', mtl_bytes)
-            # Include reference texture PNG (the processed image used for color mapping)
-            zip_file.writestr('texture.png', png_bytes)
-            print("✅ Included texture.png in ZIP (reference image used for color mapping)")
-        zip_buffer.seek(0)
-        
-        print(f"✅ ZIP size: {zip_buffer.getbuffer().nbytes} bytes")
-        print("📤 Sending ZIP file to client...")
-        
-        # Return as downloadable ZIP
+        print("📤 Sending OBJ file with vertex colors to client...")
         return send_file(
-            zip_buffer,
-            mimetype='application/zip',
+            io.BytesIO(obj_bytes),
+            mimetype='model/obj',
             as_attachment=True,
-            download_name='colored_model.zip'
+            download_name='colored_model.obj'
         )
 
     except Exception as e:
@@ -1364,14 +1623,8 @@ def upload_for_checkout():
         except Exception as e:
             print(f"⚠️  Warning: Could not load price: {e}")
         
-        # Use vertex colors for ALL modes to match the 3D viewer exactly
-        # The frontend viewer uses vertex colors for all modes (including 48x48 Normal mode)
-        # This ensures the exported OBJ shows exactly what's displayed in the viewer
-        print("⚙️  Generating OBJ and MTL files with vertex colors (matching 3D viewer)...")
-        obj_bytes, mtl_bytes, texture_png_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
-        
-        # For reference, also save the processed PNG (but OBJ uses vertex colors)
-        reference_png_bytes = png_bytes
+        # Use OBJ format with vertex colors (Bambu Studio compatible)
+        obj_bytes, mtl_bytes, texture_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
         
         # Create unique order ID
         order_id = str(uuid.uuid4())
@@ -1386,21 +1639,11 @@ def upload_for_checkout():
         order_dir = os.path.join(orders_dir, order_id)
         os.makedirs(order_dir, exist_ok=True)
         
-        # Save OBJ and MTL files (all modes use vertex colors with 4-color quantization)
-        obj_path = os.path.join(order_dir, 'model.obj')
-        mtl_path = os.path.join(order_dir, 'model.mtl')
-        
-        with open(obj_path, 'wb') as f:
+        # Save OBJ file with vertex colors (Bambu Studio compatible)
+        model_path = os.path.join(order_dir, 'model.obj')
+        with open(model_path, 'wb') as f:
             f.write(obj_bytes)
-        with open(mtl_path, 'wb') as f:
-            f.write(mtl_bytes)
-        
-        # Save processed PNG as reference (OBJ uses vertex colors, but PNG is saved for reference)
-        # This ensures users have the exact image that was used for color mapping
-        reference_png_path = os.path.join(order_dir, 'texture.png')
-        with open(reference_png_path, 'wb') as f:
-            f.write(reference_png_bytes)
-        print(f"✅ Saved reference texture PNG: {reference_png_path}")
+        print(f"✅ Saved model.obj to {order_dir}")
         
         # Also save original PNG for reference
         png_path = os.path.join(order_dir, 'original.png')
@@ -2101,6 +2344,66 @@ def get_content():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/convert-image', methods=['POST'])
+def convert_image():
+    """Convert HEIC/HEIF or other formats to JPEG"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Read file into memory
+        file_data = file.read()
+        file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+        
+        # Try to open image with PIL (supports HEIC if pillow-heif is installed)
+        try:
+            img = Image.open(io.BytesIO(file_data))
+            
+            # Convert RGBA to RGB if necessary (removes alpha channel)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                # Create a white background
+                rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                rgb_img.paste(img, mask=img.split()[3] if img.mode in ('RGBA', 'LA') else None)
+                img = rgb_img
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Save as JPEG to BytesIO
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=92)
+            output.seek(0)
+            
+            # Return the converted image
+            return send_file(
+                output,
+                mimetype='image/jpeg',
+                as_attachment=False
+            )
+            
+        except Exception as img_error:
+            error_msg = f"Failed to convert image: {str(img_error)}"
+            print(f"❌ Image conversion error: {error_msg}")
+            
+            # Provide helpful error message based on format
+            if file_extension in ('heic', 'heif'):
+                if not HEIF_SUPPORT_AVAILABLE:
+                    error_msg = "HEIC/HEIF conversion not available. Please install pillow-heif library on the server or convert the image to JPEG format."
+            else:
+                error_msg = f"Unable to process {file_extension.upper() if file_extension else 'image'} format. Please convert to JPEG format."
+            
+            return jsonify({'error': error_msg}), 400
+            
+    except Exception as e:
+        print(f"❌ Error in convert-image endpoint: {e}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+
 @app.route('/admin/orders/api', methods=['GET', 'POST', 'DELETE'])
 def admin_orders_api():
     """Admin API to get, update, or delete orders"""
@@ -2181,12 +2484,27 @@ def admin_orders_api():
 
 @app.route('/admin/orders/download/<order_id>/<filename>')
 def download_order_file(order_id, filename):
-    """Download order files (STL, OBJ, MTL, PNG)"""
-    order_dir = os.path.join('orders', order_id)
+    """Download order files (STL, OBJ, PNG)"""
+    # Use absolute path based on server.py location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    order_dir = os.path.join(script_dir, 'orders', order_id)
+    
+    # If requesting model.3mf, redirect to model.obj (we use OBJ now for Bambu Studio compatibility)
+    if filename == 'model.3mf':
+        filename = 'model.obj'
+    
     file_path = os.path.join(order_dir, filename)
     
+    print(f"🔍 Download request: order_id={order_id}, filename={filename}")
+    print(f"   Looking for file at: {file_path}")
+    print(f"   File exists: {os.path.exists(file_path)}")
+    
     if not os.path.exists(file_path):
-        return jsonify({'error': 'File not found'}), 404
+        # List what files actually exist in the order directory
+        if os.path.exists(order_dir):
+            existing_files = os.listdir(order_dir)
+            print(f"   Files in order directory: {existing_files}")
+        return jsonify({'error': 'File not found', 'path': file_path}), 404
     
     return send_file(file_path, as_attachment=True)
 

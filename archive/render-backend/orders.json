@@ -22,5 +22,17 @@
     "total_price": 29.99,
     "addons": [],
     "completed": false
+  },
+  {
+    "order_id": "136659c0-c289-455d-a4cf-e67fab7af7e9",
+    "timestamp": "2025-11-30T00:54:29.971937",
+    "grid_size": 48,
+    "dimensions": "48\u00d748",
+    "base_price": 29.99,
+    "stand_selected": false,
+    "mounting_selected": false,
+    "total_price": 29.99,
+    "addons": [],
+    "completed": false
   }
 ]
