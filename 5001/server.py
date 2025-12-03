@@ -1337,12 +1337,26 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
 
 # Flask app
 app = Flask(__name__)
-# Enable CORS for frontend access - allow all origins for admin panel
+# Enable CORS for frontend access - allow all origins for admin panel and Hostinger domain
+# Allow requests from Hostinger domain and localhost for development
 CORS(app, resources={
-    r"/admin/*": {"origins": "*"},
-    r"/api/*": {"origins": "*"},
-    r"/product_images/*": {"origins": "*"}
+    r"/admin/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Cache-Control", "Authorization"]},
+    r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Cache-Control"]},
+    r"/product_images/*": {"origins": "*", "methods": ["GET", "OPTIONS"], "allow_headers": ["Content-Type"]},
+    r"/get-stl/*": {"origins": "*", "methods": ["GET", "OPTIONS"], "allow_headers": ["Content-Type", "Cache-Control"]}  # Allow STL file downloads from any origin
 })
+
+# Add after_request handler to ensure CORS headers are ALWAYS set on ALL responses
+@app.after_request
+def after_request(response):
+    """Add CORS headers to all responses - this ensures preflight requests work"""
+    # Always set CORS headers regardless of what flask-cors did
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Cache-Control, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'false'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
 
 
 @app.route('/')
@@ -1537,15 +1551,28 @@ def generate_obj_route():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/get-stl/<int:size>')
+@app.route('/get-stl/<int:size>', methods=['GET', 'OPTIONS'])
 def get_stl(size):
     """
     Serves the pre-uploaded STL file for the specified grid size.
     Tries multiple filename patterns: {size}x{size}_grid.stl, {size}x{size}.stl
     """
+    # Handle OPTIONS preflight request - MUST return 200 with CORS headers
+    if request.method == 'OPTIONS':
+        print(f"✅ Handling OPTIONS preflight request for /get-stl/{size}")
+        response = jsonify({'status': 'ok'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Cache-Control, Authorization'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        response.headers['Access-Control-Allow-Credentials'] = 'false'
+        return response, 200
+    
     try:
         if size not in [48, 75, 96]:
-            return jsonify({'error': f'Invalid grid size: {size}'}), 400
+            error_msg = f'Invalid grid size: {size}. Must be 48, 75, or 96.'
+            print(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 400
         
         # Try multiple filename patterns
         possible_paths = [
@@ -1559,21 +1586,35 @@ def get_stl(size):
         for path in possible_paths:
             if os.path.exists(path):
                 stl_path = path
+                print(f"✅ Found STL file at: {stl_path}")
                 break
         
         if not stl_path:
-            return jsonify({'error': f'STL file not found for {size}×{size} grid. Tried: {", ".join(possible_paths)}'}), 404
+            error_msg = f'STL file not found for {size}×{size} grid. Tried: {", ".join(possible_paths)}. Please upload via admin panel.'
+            print(f"❌ {error_msg}")
+            response = jsonify({'error': error_msg, 'size': size, 'tried_paths': possible_paths})
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            return response, 404
         
-        print(f"📦 Serving STL file: {stl_path}")
-        return send_file(
+        print(f"📦 Serving STL file: {stl_path} (size: {os.path.getsize(stl_path)} bytes)")
+        response = send_file(
             stl_path,
             mimetype='application/octet-stream',
             as_attachment=False
         )
+        # Ensure CORS headers are set
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
         
     except Exception as e:
-        print(f"❌ Error serving STL: {e}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Error serving STL for size {size}: {error_details}")
+        response = jsonify({'error': str(e), 'size': size, 'details': error_details})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response, 500
 
 
 @app.route('/upload-for-checkout', methods=['POST'])
@@ -2057,9 +2098,18 @@ def admin_images_api():
             return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/product_images/<filename>')
+@app.route('/product_images/<filename>', methods=['GET', 'OPTIONS'])
 def serve_product_image(filename):
     """Serve product images"""
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response, 200
+    
     images_dir = 'product_images'
     filepath = os.path.join(images_dir, filename)
     if os.path.exists(filepath):
@@ -2068,9 +2118,13 @@ def serve_product_image(filename):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
+        # CORS headers already set by after_request, but ensure they're there
+        response.headers['Access-Control-Allow-Origin'] = '*'
         return response
     else:
-        return jsonify({'error': 'Image not found'}), 404
+        response = jsonify({'error': 'Image not found'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response, 404
 
 
 @app.route('/api/images', methods=['GET'])
