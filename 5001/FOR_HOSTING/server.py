@@ -53,6 +53,14 @@ except ImportError:
     WEBHOOK_HANDLERS_AVAILABLE = False
     print("⚠️  webhook_handlers.py not found")
 
+# Import Shopify Storefront API wrapper
+try:
+    from shopify_storefront_api import get_storefront_api
+    SHOPIFY_STOREFRONT_API_AVAILABLE = True
+except ImportError:
+    SHOPIFY_STOREFRONT_API_AVAILABLE = False
+    print("⚠️  shopify_storefront_api.py not found")
+
 # Try both bindings; some environments publish lib3mf as 'lib3mf', others as 'py3mf'
 _three_mf = None
 _three_mf_error = None
@@ -1339,6 +1347,11 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
 
 # Flask app
 app = Flask(__name__)
+
+# Base directory - use absolute path to server.py location
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+print(f"📂 Base directory: {BASE_DIR}")
+
 # Enable CORS for frontend access - allow all origins for admin panel and Hostinger domain
 # Allow requests from Hostinger domain and localhost for development
 CORS(app, resources={
@@ -1414,14 +1427,13 @@ def index():
 @app.route('/mobile')
 def mobile():
     """Force mobile version"""
-    # Use absolute path based on current file location
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    mobile_path = os.path.join(script_dir, 'mobile', 'index.html')
+    # Use BASE_DIR for absolute path
+    mobile_path = os.path.join(BASE_DIR, 'mobile', 'index.html')
     
     # Debug: Print path information
     print(f"🔍 Mobile route called")
     print(f"   __file__: {__file__}")
-    print(f"   script_dir: {script_dir}")
+    print(f"   BASE_DIR: {BASE_DIR}")
     print(f"   mobile_path: {mobile_path}")
     print(f"   exists: {os.path.exists(mobile_path)}")
     print(f"   cwd: {os.getcwd()}")
@@ -1436,7 +1448,7 @@ def mobile():
             return jsonify({
                 'error': f'Mobile file not found',
                 'tried': [mobile_path, alt_path],
-                'script_dir': script_dir,
+                'BASE_DIR': BASE_DIR,
                 'cwd': os.getcwd()
             }), 404
     
@@ -1751,8 +1763,8 @@ def upload_for_checkout():
         print(f"🆔 Generated order ID: {order_id}")
         print(f"💰 Total Price: ${total_price:.2f}")
         
-        # Create orders directory if it doesn't exist
-        orders_dir = 'orders'
+        # Create orders directory if it doesn't exist (use absolute path)
+        orders_dir = os.path.join(BASE_DIR, 'orders')
         os.makedirs(orders_dir, exist_ok=True)
         
         # Save files with order ID
@@ -1795,8 +1807,8 @@ def upload_for_checkout():
         if mounting_selected:
             order_data['addons'].append('Nano Wall Mounting Dots')
         
-        # Save order metadata to orders.json
-        orders_file = 'orders.json'
+        # Save order metadata to orders.json (use absolute path)
+        orders_file = os.path.join(BASE_DIR, 'orders.json')
         orders = []
         if os.path.exists(orders_file):
             try:
@@ -1856,6 +1868,142 @@ def get_shopify_variants():
         return jsonify(variants)
     except Exception as e:
         print(f"❌ Error getting Shopify variants: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/create-cart', methods=['POST'])
+def create_shopify_cart():
+    """
+    Create a Shopify cart via Storefront API and return checkout URL
+    
+    Expected request body:
+    {
+        "size": 48|75|96,
+        "quantity": 1,
+        "customization_id": "cst_abc123",
+        "addons": {
+            "stand": true|false,
+            "mounting_dots": true|false
+        }
+    }
+    
+    Returns:
+    {
+        "checkout_url": "https://...",
+        "cart_id": "gid://shopify/Cart/...",
+        "customization_id": "cst_abc123"
+    }
+    """
+    if not SHOPIFY_STOREFRONT_API_AVAILABLE:
+        return jsonify({'error': 'Shopify Storefront API not available'}), 503
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        size = data.get('size')
+        quantity = data.get('quantity', 1)
+        customization_id = data.get('customization_id')
+        addons = data.get('addons', {})
+        
+        # Validate required fields
+        if not size or size not in [48, 75, 96]:
+            return jsonify({'error': 'Invalid size. Must be 48, 75, or 96'}), 400
+        
+        if not customization_id:
+            return jsonify({'error': 'customization_id is required'}), 400
+        
+        # Get Storefront API instance
+        storefront_api = get_storefront_api()
+        if not storefront_api.is_configured():
+            return jsonify({'error': 'Shopify Storefront API not configured'}), 503
+        
+        # Determine variant GID based on size (server-side validation)
+        # Map size to variant GID from environment variables
+        variant_env_key = f'SHOPIFY_VARIANT_{size}'
+        variant_gid = os.getenv(variant_env_key)
+        
+        if not variant_gid:
+            return jsonify({
+                'error': f'Variant for size {size}x{size} not configured',
+                'help': f'Set {variant_env_key} environment variable'
+            }), 500
+        
+        print(f"🛒 Creating cart for {size}x{size} (variant: {variant_gid})")
+        print(f"   Customization ID: {customization_id}")
+        print(f"   Addons: {addons}")
+        
+        # Build line attributes
+        attributes = [
+            {'key': 'size', 'value': f'{size}x{size}'},
+            {'key': 'customization_id', 'value': customization_id}
+        ]
+        
+        # Add addon flags as attributes
+        if addons.get('stand'):
+            attributes.append({'key': 'addon_stand', 'value': 'true'})
+        if addons.get('mounting_dots'):
+            attributes.append({'key': 'addon_mounting_dots', 'value': 'true'})
+        
+        # Create cart with main product variant
+        cart_result = storefront_api.create_cart(
+            variant_gid=variant_gid,
+            quantity=quantity,
+            customization_id=customization_id,
+            attributes=attributes
+        )
+        
+        if not cart_result:
+            return jsonify({'error': 'Failed to create cart'}), 500
+        
+        cart_id = cart_result['cart_id']
+        checkout_url = cart_result['checkout_url']
+        
+        # Add addon items to cart if selected
+        if addons.get('stand'):
+            stand_variant_gid = os.getenv('SHOPIFY_VARIANT_STAND')
+            if stand_variant_gid:
+                print(f"   Adding stand addon (variant: {stand_variant_gid})")
+                storefront_api.add_cart_lines(
+                    cart_id=cart_id,
+                    variant_gid=stand_variant_gid,
+                    quantity=1,
+                    attributes=[{'key': 'addon_type', 'value': 'stand'}]
+                )
+            else:
+                print(f"⚠️  Stand addon requested but SHOPIFY_VARIANT_STAND not configured")
+        
+        if addons.get('mounting_dots'):
+            mounting_variant_gid = os.getenv('SHOPIFY_VARIANT_MOUNTING')
+            if mounting_variant_gid:
+                print(f"   Adding mounting dots addon (variant: {mounting_variant_gid})")
+                storefront_api.add_cart_lines(
+                    cart_id=cart_id,
+                    variant_gid=mounting_variant_gid,
+                    quantity=1,
+                    attributes=[{'key': 'addon_type', 'value': 'mounting_dots'}]
+                )
+            else:
+                print(f"⚠️  Mounting dots addon requested but SHOPIFY_VARIANT_MOUNTING not configured")
+        
+        print(f"✅ Cart created successfully")
+        print(f"   Cart ID: {cart_id}")
+        print(f"   Checkout URL: {checkout_url}")
+        
+        # Return checkout URL and cart info
+        return jsonify({
+            'checkout_url': checkout_url,
+            'cart_id': cart_id,
+            'customization_id': customization_id,
+            'success': True
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"❌ Error creating cart: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -2020,9 +2168,8 @@ def webhook_order_paid():
 def admin_prices_page():
     """Serve admin price editor HTML page"""
     try:
-        # Get the directory where server.py is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        admin_path = os.path.join(script_dir, 'admin.html')
+        # Use BASE_DIR for absolute path
+        admin_path = os.path.join(BASE_DIR, 'admin.html')
         
         # Check if file exists
         if not os.path.exists(admin_path):
@@ -2031,18 +2178,18 @@ def admin_prices_page():
             if not os.path.exists(admin_path):
                 # Return helpful error with debug info
                 current_dir = os.getcwd()
-                script_dir_files = os.listdir(script_dir) if os.path.exists(script_dir) else []
+                base_dir_files = os.listdir(BASE_DIR) if os.path.exists(BASE_DIR) else []
                 current_dir_files = os.listdir(current_dir) if os.path.exists(current_dir) else []
                 
                 return jsonify({
                     'error': 'Admin file not found',
                     'message': 'admin.html file is missing',
                     'debug': {
-                        'script_dir': script_dir,
+                        'BASE_DIR': BASE_DIR,
                         'current_dir': current_dir,
-                        'script_dir_files': script_dir_files[:20],  # Limit to first 20
+                        'base_dir_files': base_dir_files[:20],  # Limit to first 20
                         'current_dir_files': current_dir_files[:20],
-                        'admin_path_attempted': os.path.join(script_dir, 'admin.html')
+                        'admin_path_attempted': os.path.join(BASE_DIR, 'admin.html')
                     },
                     'help': 'Make sure admin.html is in the same directory as server.py'
                 }), 404
@@ -2061,8 +2208,85 @@ def admin_prices_api():
     """Admin API to get prices from Shopify (read-only, prices cannot be edited here)"""
     
     if request.method == 'GET':
-        # Return current prices from Shopify
+        # Return current prices (try Shopify first, then fallback to prices.json)
         try:
+            # Try Shopify first if available
+            if SHOPIFY_API_AVAILABLE:
+                variant_ids = {
+                    '48x48': os.getenv('SHOPIFY_VARIANT_48', '10470738559281'),
+                    '75x75': os.getenv('SHOPIFY_VARIANT_75', '10470738952497'),
+                    '96x96': os.getenv('SHOPIFY_VARIANT_96', '10470739312945'),
+                    'stand': os.getenv('SHOPIFY_VARIANT_STAND', '10470741901617'),
+                    'wall_mounting_dots': os.getenv('SHOPIFY_VARIANT_MOUNTING', '10470742655281')
+                }
+                
+                # Filter out None values
+                variant_ids = {k: v for k, v in variant_ids.items() if v}
+                
+                try:
+                    shopify_api = get_shopify_api()
+                    if shopify_api.is_configured():
+                        prices = shopify_api.get_variant_prices(variant_ids)
+                        if prices:
+                            result = {
+                                '48x48': prices.get('48x48', 0),
+                                '75x75': prices.get('75x75', 0),
+                                '96x96': prices.get('96x96', 0),
+                                'stand': prices.get('stand', 0),
+                                'wall_mounting_dots': prices.get('wall_mounting_dots', 0)
+                            }
+                            return jsonify(result)
+                except Exception as e:
+                    print(f"⚠️ Shopify API failed in admin, falling back to prices.json: {e}")
+            
+            # Fallback to local prices.json file
+            prices_file = os.path.join(BASE_DIR, 'prices.json')
+            if os.path.exists(prices_file):
+                with open(prices_file, 'r') as f:
+                    prices = json.load(f)
+                return jsonify(prices)
+            
+            # If no prices available at all
+            return jsonify({'error': 'No prices configured'}), 503
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    elif request.method == 'POST':
+        # Save prices to local prices.json file
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            # Validate price data
+            required_keys = ['48x48', '75x75', '96x96', 'stand', 'wall_mounting_dots']
+            for key in required_keys:
+                if key not in data:
+                    return jsonify({'error': f'Missing required price: {key}'}), 400
+                try:
+                    float(data[key])
+                except (ValueError, TypeError):
+                    return jsonify({'error': f'Invalid price value for {key}'}), 400
+            
+            # Save to prices.json
+            prices_file = os.path.join(BASE_DIR, 'prices.json')
+            with open(prices_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            return jsonify({'success': True, 'message': 'Prices saved successfully'})
+        except Exception as e:
+            print(f"❌ Error saving prices: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/prices', methods=['GET'])
+def get_prices():
+    """Public API to get current prices from Shopify (read-only for customers)"""
+    try:
+        # Try Shopify first if available
+        if SHOPIFY_API_AVAILABLE:
             # Get variant IDs from environment or use defaults from image
             variant_ids = {
                 '48x48': os.getenv('SHOPIFY_VARIANT_48', '10470738559281'),
@@ -2075,96 +2299,24 @@ def admin_prices_api():
             # Filter out None values
             variant_ids = {k: v for k, v in variant_ids.items() if v}
             
-            # ONLY fetch prices from Shopify - no fallback to prices.json
-            if not variant_ids:
-                return jsonify({'error': 'Shopify variant IDs not configured'}), 503
-            
-            if not SHOPIFY_API_AVAILABLE:
-                return jsonify({'error': 'Shopify API not available'}), 503
-            
             try:
                 shopify_api = get_shopify_api()
-                if not shopify_api.is_configured():
-                    return jsonify({'error': 'Shopify API not configured. Please set SHOPIFY_API_TOKEN and SHOPIFY_STORE_URL'}), 503
-                
-                prices = shopify_api.get_variant_prices(variant_ids)
-                if not prices:
-                    return jsonify({'error': 'Failed to fetch prices from Shopify'}), 503
-                
-                # Ensure all expected keys are present
-                result = {
-                    '48x48': prices.get('48x48', 0),
-                    '75x75': prices.get('75x75', 0),
-                    '96x96': prices.get('96x96', 0),
-                    'stand': prices.get('stand', 0),
-                    'wall_mounting_dots': prices.get('wall_mounting_dots', 0)
-                }
-                return jsonify(result)
+                if shopify_api.is_configured():
+                    prices = shopify_api.get_variant_prices(variant_ids)
+                    if prices:
+                        return jsonify(prices)
             except Exception as e:
-                print(f"❌ Error fetching prices from Shopify in admin: {e}")
-                import traceback
-                traceback.print_exc()
-                return jsonify({'error': f'Failed to fetch prices from Shopify: {str(e)}'}), 503
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-    
-    elif request.method == 'POST':
-        # Prices cannot be updated via admin panel - they come from Shopify
-        # Return error message explaining this
-        return jsonify({
-            'error': 'Prices cannot be updated here. Prices are managed in Shopify. Update prices in your Shopify store admin panel.'
-        }), 400
-
-
-@app.route('/api/prices', methods=['GET'])
-def get_prices():
-    """Public API to get current prices from Shopify (read-only for customers)"""
-    try:
-        # Get variant IDs from environment or use defaults from image
-        variant_ids = {
-            '48x48': os.getenv('SHOPIFY_VARIANT_48', '10470738559281'),
-            '75x75': os.getenv('SHOPIFY_VARIANT_75', '10470738952497'),
-            '96x96': os.getenv('SHOPIFY_VARIANT_96', '10470739312945'),
-            'stand': os.getenv('SHOPIFY_VARIANT_STAND', '10470741901617'),
-            'wall_mounting_dots': os.getenv('SHOPIFY_VARIANT_MOUNTING', '10470742655281')
-        }
+                print(f"⚠️ Shopify API failed, falling back to prices.json: {e}")
         
-        # Filter out None values
-        variant_ids = {k: v for k, v in variant_ids.items() if v}
+        # Fallback to local prices.json file
+        prices_file = os.path.join(BASE_DIR, 'prices.json')
+        if os.path.exists(prices_file):
+            with open(prices_file, 'r') as f:
+                prices = json.load(f)
+            return jsonify(prices)
         
-        # ONLY fetch prices from Shopify - no fallback to prices.json
-        if not variant_ids:
-            return jsonify({'error': 'Shopify variant IDs not configured'}), 503
-        
-        if not SHOPIFY_API_AVAILABLE:
-            return jsonify({'error': 'Shopify API not available'}), 503
-        
-        try:
-            shopify_api = get_shopify_api()
-            if not shopify_api.is_configured():
-                return jsonify({'error': 'Shopify API not configured. Please set SHOPIFY_API_TOKEN and SHOPIFY_STORE_URL'}), 503
-            
-            prices = shopify_api.get_variant_prices(variant_ids)
-            if not prices:
-                return jsonify({'error': 'Failed to fetch prices from Shopify'}), 503
-            
-            # Ensure all expected keys are present (set to 0 if missing)
-            result = {
-                '48x48': prices.get('48x48', 0),
-                '75x75': prices.get('75x75', 0),
-                '96x96': prices.get('96x96', 0),
-                'stand': prices.get('stand', 0),
-                'wall_mounting_dots': prices.get('wall_mounting_dots', 0)
-            }
-            # Add cache headers to allow some caching but refresh periodically
-            response = jsonify(result)
-            response.headers['Cache-Control'] = 'public, max-age=300'  # Cache for 5 minutes
-            return response
-        except Exception as e:
-            print(f"❌ Error fetching prices from Shopify: {e}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({'error': f'Failed to fetch prices from Shopify: {str(e)}'}), 503
+        # If no prices available at all
+        return jsonify({'error': 'No prices configured'}), 503
     except Exception as e:
         print(f"❌ Error in get_prices: {e}")
         import traceback
@@ -2623,7 +2775,7 @@ def convert_image():
 @app.route('/admin/orders/api', methods=['GET', 'POST', 'DELETE'])
 def admin_orders_api():
     """Admin API to get, update, or delete orders"""
-    orders_file = 'orders.json'
+    orders_file = os.path.join(BASE_DIR, 'orders.json')
     
     if request.method == 'GET':
         if not os.path.exists(orders_file):
@@ -2686,9 +2838,9 @@ def admin_orders_api():
             with open(orders_file, 'w') as f:
                 json.dump(orders, f, indent=2)
             
-            # Also delete the order directory
+            # Also delete the order directory (use absolute path)
             import shutil
-            order_dir = os.path.join('orders', order_id)
+            order_dir = os.path.join(BASE_DIR, 'orders', order_id)
             if os.path.exists(order_dir):
                 shutil.rmtree(order_dir)
             
@@ -2711,13 +2863,12 @@ def download_order_file(order_id, filename):
         return response, 200
     
     try:
-        # Use absolute path based on server.py location
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        order_dir = os.path.join(script_dir, 'orders', order_id)
+        # Use absolute path based on BASE_DIR
+        order_dir = os.path.join(BASE_DIR, 'orders', order_id)
         original_filename = filename
         
         print(f"🔍 Download request: order_id={order_id}, filename={original_filename}")
-        print(f"   Script directory: {script_dir}")
+        print(f"   BASE_DIR: {BASE_DIR}")
         print(f"   Order directory: {order_dir}")
         print(f"   Order dir exists: {os.path.exists(order_dir)}")
         
@@ -2742,7 +2893,7 @@ def download_order_file(order_id, filename):
                 print(f"📦 3MF file not found, generating on-demand...")
                 
                 # Load order metadata to get grid_size
-                orders_file = os.path.join(script_dir, 'orders.json')
+                orders_file = os.path.join(BASE_DIR, 'orders.json')
                 grid_size = 75  # default
                 
                 if os.path.exists(orders_file):
