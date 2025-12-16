@@ -144,12 +144,16 @@
         }
 
         .viewer-controls {
-            position: absolute;
+            position: fixed;
             top: 20px;
             left: 20px;
             display: flex;
             gap: 10px;
-            z-index: 10;
+            z-index: 1000;
+        }
+        
+        .viewer-controls.stopped {
+            display: none;
         }
 
         .viewer-btn {
@@ -955,7 +959,7 @@
         // Example: 'https://your-backend.onrender.com' or 'https://your-backend.railway.app'
         // Auto-detect localhost vs production
         const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-            ? 'http://localhost:5001'  // Local development
+            ? 'http://localhost:5003'  // Local development on port 5003
             : 'https://rizepics.onrender.com'; // Production (Render) - matches admin panel
         
         // Helper function to get API URL
@@ -1906,10 +1910,8 @@
         function showEditorPanel() {
             document.getElementById('editor-panel').style.display = 'block';
             document.getElementById('canvas-container').style.display = 'none';
-            // Ensure controls are positioned correctly when editor panel is shown
-            setTimeout(() => {
-                positionControls();
-            }, 100);
+            // Reset viewer controls position when editor is shown
+            updateViewerControlsPosition();
             // Ensure controls are positioned correctly when editor panel is shown
             setTimeout(() => {
                 positionControls();
@@ -1962,6 +1964,29 @@
             }
         }
 
+        function updateViewerControlsPosition() {
+            const canvasContainer = document.getElementById('canvas-container');
+            const viewerControls = document.querySelector('.viewer-controls');
+            
+            if (!canvasContainer || !viewerControls) return;
+            
+            // Only update if viewer is visible
+            if (canvasContainer.style.display === 'none') {
+                viewerControls.classList.remove('stopped');
+                return;
+            }
+            
+            const containerRect = canvasContainer.getBoundingClientRect();
+            
+            // If the bottom of the container has scrolled past the top of the viewport, hide the controls
+            // Otherwise keep them visible at the top
+            if (containerRect.bottom < 0) {
+                viewerControls.classList.add('stopped');
+            } else {
+                viewerControls.classList.remove('stopped');
+            }
+        }
+
         function show3DView() {
             // Regenerate PNG with current crop settings before showing 3D view
             if (rawUploadedImage && currentMesh) {
@@ -1976,6 +2001,8 @@
             
             document.getElementById('editor-panel').style.display = 'none';
             document.getElementById('canvas-container').style.display = 'block';
+            // Update controls position and setup scroll handler
+            updateViewerControlsPosition();
             // Ensure Three.js canvas resizes correctly after becoming visible (wait a frame)
             requestAnimationFrame(() => {
                 try {
@@ -3900,8 +3927,27 @@
             canvas.width = pngImage.width;
             canvas.height = pngImage.height;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(pngImage, 0, 0);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Ensure image is fully loaded and not tainted
+            if (!pngImage.complete || pngImage.naturalWidth === 0) {
+                console.error('Image not fully loaded');
+                return;
+            }
+            
+            let imageData;
+            try {
+                ctx.drawImage(pngImage, 0, 0);
+                imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Verify image data is valid
+                if (!imageData || !imageData.data || imageData.data.length === 0) {
+                    console.error('Failed to get image data from canvas');
+                    return;
+                }
+            } catch (error) {
+                console.error('Canvas security error or image read error:', error);
+                return;
+            }
 
             // Create color array for each face (triangle)
             const numFaces = positions.count / 3;
@@ -4728,6 +4774,20 @@
             setTimeout(() => {
                 setupPaintHandlers();
             }, 500);
+            
+            // Add scroll listener for viewer controls positioning
+            let scrollTimeout;
+            window.addEventListener('scroll', () => {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    updateViewerControlsPosition();
+                }, 10);
+            }, { passive: true });
+            
+            // Also update on resize
+            window.addEventListener('resize', () => {
+                updateViewerControlsPosition();
+            }, { passive: true });
         });
     </script>
 </body>

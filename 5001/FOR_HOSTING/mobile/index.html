@@ -201,15 +201,16 @@
         }
 
         .viewer-controls {
-            position: sticky;
-            top: 0;
+            position: fixed;
+            top: 20px;
             left: 20px;
             display: flex;
             gap: 10px;
-            z-index: 100;
-            padding: 20px 0 10px 20px;
-            background: rgba(255, 251, 245, 0.95);
-            backdrop-filter: blur(5px);
+            z-index: 1000;
+        }
+        
+        .viewer-controls.stopped {
+            display: none;
         }
 
         .viewer-btn {
@@ -1250,7 +1251,7 @@
         window.BACKEND_URL = isFileProtocol
             ? null  // No backend when opening as file:// - works offline
             : (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                ? 'http://localhost:5001'  // Local development
+                ? 'http://localhost:5003'  // Local development on port 5003
                 : 'https://rizepics.onrender.com'; // Production (Render) - matches admin panel
         const BACKEND_URL = window.BACKEND_URL; // Local reference for this script block
         
@@ -2588,6 +2589,9 @@
                 canvasContainer.style.display = 'none';
             }
             
+            // Reset viewer controls position when editor is shown
+            updateViewerControlsPosition();
+            
             // Process image if we have one
             if (rawUploadedImage) {
                 if (processedImageData && processedImageData.width === selectedGridSize && processedImageData.height === selectedGridSize) {
@@ -2598,6 +2602,29 @@
             }
             
             console.log('Editor panel should now be visible');
+        }
+
+        function updateViewerControlsPosition() {
+            const canvasContainer = document.getElementById('canvas-container');
+            const viewerControls = document.querySelector('.viewer-controls');
+            
+            if (!canvasContainer || !viewerControls) return;
+            
+            // Only update if viewer is visible
+            if (canvasContainer.style.display === 'none') {
+                viewerControls.classList.remove('stopped');
+                return;
+            }
+            
+            const containerRect = canvasContainer.getBoundingClientRect();
+            
+            // If the bottom of the container has scrolled past the top of the viewport, hide the controls
+            // Otherwise keep them visible at the top
+            if (containerRect.bottom < 0) {
+                viewerControls.classList.add('stopped');
+            } else {
+                viewerControls.classList.remove('stopped');
+            }
         }
 
         async function show3DView() {
@@ -2724,6 +2751,9 @@
             console.log('🔄 Switching to 3D view');
             editorPanel.style.display = 'none';
             canvasContainer.style.display = 'block';
+            
+            // Update controls position and setup scroll handler
+            updateViewerControlsPosition();
             
             // Ensure Three.js canvas resizes correctly after becoming visible (wait a frame)
             requestAnimationFrame(() => {
@@ -5556,8 +5586,27 @@
             canvas.width = pngImage.width;
             canvas.height = pngImage.height;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(pngImage, 0, 0);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Ensure image is fully loaded and not tainted
+            if (!pngImage.complete || pngImage.naturalWidth === 0) {
+                console.error('Image not fully loaded');
+                return;
+            }
+            
+            let imageData;
+            try {
+                ctx.drawImage(pngImage, 0, 0);
+                imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Verify image data is valid (check first pixel isn't all zeros or all 255s unexpectedly)
+                if (!imageData || !imageData.data || imageData.data.length === 0) {
+                    console.error('Failed to get image data from canvas');
+                    return;
+                }
+            } catch (error) {
+                console.error('Canvas security error or image read error:', error);
+                return;
+            }
 
             // Create color array for each face (triangle)
             const numFaces = positions.count / 3;
@@ -6695,12 +6744,38 @@
                     buyNowBtn.style.display = 'block';
                 }
 
-                // Use the exact same PNG that's displayed in the 3D view
+                // Use the EXACT same PNG that's displayed in the 3D view
                 // This ensures perfect alignment between 3D view and exported file
+                // CRITICAL: If user has painted/edited the image, use processedImageData (the painted version)
                 let processedPngFile = pngFile;
                 
-                // If pngFile doesn't exist yet (user hasn't viewed in 3D), generate it now
-                if (!processedPngFile && rawUploadedImage) {
+                // Check if there's painted image data - this is what's shown in the 3D viewer
+                if (processedImageData && processedImageData.width > 0 && processedImageData.height > 0) {
+                    // Use the painted/edited image data - this is EXACTLY what's in the 3D viewer
+                    console.log('🎨 Using painted image data for export (exact match to 3D viewer)');
+                    await new Promise((resolve) => {
+                        const paintedCanvas = document.createElement('canvas');
+                        paintedCanvas.width = processedImageData.width;
+                        paintedCanvas.height = processedImageData.height;
+                        const paintedCtx = paintedCanvas.getContext('2d');
+                        paintedCtx.putImageData(processedImageData, 0, 0);
+                        
+                        // Convert to blob and file
+                        paintedCanvas.toBlob((blob) => {
+                            processedPngFile = new File([blob], 'painted.png', { type: 'image/png' });
+                            // Also update pngFile and pngImage to keep them in sync
+                            pngFile = processedPngFile;
+                            const img = new Image();
+                            img.onload = () => {
+                                pngImage = img;
+                                resolve();
+                            };
+                            img.src = URL.createObjectURL(blob);
+                        }, 'image/png');
+                    });
+                } else if (!processedPngFile && rawUploadedImage) {
+                    // If pngFile doesn't exist yet (user hasn't viewed in 3D), generate it now
+                    console.log('📸 Generating processed image for export');
                     await new Promise((resolve) => {
                         createProcessedImageAtSize(rawUploadedImage, selectedGridSize, (file, img) => {
                             processedPngFile = file;
@@ -6709,6 +6784,9 @@
                             resolve();
                         });
                     });
+                } else {
+                    // Use existing pngFile (already processed, no painting done)
+                    console.log('✅ Using existing processed PNG file for export');
                 }
                 
                 // Calculate total price
@@ -6817,12 +6895,38 @@
             document.getElementById('buy-now-btn').disabled = true;
 
             try {
-                // Use the exact same PNG that's displayed in the 3D view
+                // Use the EXACT same PNG that's displayed in the 3D view
                 // This ensures perfect alignment between 3D view and exported file
+                // CRITICAL: If user has painted/edited the image, use processedImageData (the painted version)
                 let processedPngFile = pngFile;
                 
-                // If pngFile doesn't exist yet (user hasn't viewed in 3D), generate it now
-                if (!processedPngFile && rawUploadedImage) {
+                // Check if there's painted image data - this is what's shown in the 3D viewer
+                if (processedImageData && processedImageData.width > 0 && processedImageData.height > 0) {
+                    // Use the painted/edited image data - this is EXACTLY what's in the 3D viewer
+                    console.log('🎨 Using painted image data for Buy Now export (exact match to 3D viewer)');
+                    await new Promise((resolve) => {
+                        const paintedCanvas = document.createElement('canvas');
+                        paintedCanvas.width = processedImageData.width;
+                        paintedCanvas.height = processedImageData.height;
+                        const paintedCtx = paintedCanvas.getContext('2d');
+                        paintedCtx.putImageData(processedImageData, 0, 0);
+                        
+                        // Convert to blob and file
+                        paintedCanvas.toBlob((blob) => {
+                            processedPngFile = new File([blob], 'painted.png', { type: 'image/png' });
+                            // Also update pngFile and pngImage to keep them in sync
+                            pngFile = processedPngFile;
+                            const img = new Image();
+                            img.onload = () => {
+                                pngImage = img;
+                                resolve();
+                            };
+                            img.src = URL.createObjectURL(blob);
+                        }, 'image/png');
+                    });
+                } else if (!processedPngFile && rawUploadedImage) {
+                    // If pngFile doesn't exist yet (user hasn't viewed in 3D), generate it now
+                    console.log('📸 Generating processed image for Buy Now export');
                     await new Promise((resolve) => {
                         createProcessedImageAtSize(rawUploadedImage, selectedGridSize, (file, img) => {
                             processedPngFile = file;
@@ -6831,6 +6935,9 @@
                             resolve();
                         });
                     });
+                } else {
+                    // Use existing pngFile (already processed, no painting done)
+                    console.log('✅ Using existing processed PNG file for Buy Now export');
                 }
                 
                 // Generate and upload file for checkout
@@ -7218,6 +7325,20 @@
         // Load size guide when page loads
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', loadSizeGuide);
+            
+            // Add scroll listener for viewer controls positioning
+            let scrollTimeout;
+            window.addEventListener('scroll', () => {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    updateViewerControlsPosition();
+                }, 10);
+            }, { passive: true });
+            
+            // Also update on resize
+            window.addEventListener('resize', () => {
+                updateViewerControlsPosition();
+            }, { passive: true });
         } else {
             loadSizeGuide();
         }

@@ -1210,7 +1210,7 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
         // 2. Copy your backend URL from Render dashboard
         // 3. Replace 'YOUR_BACKEND_URL_HERE' below with your actual backend URL
         const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-            ? 'http://localhost:5002' 
+            ? 'http://localhost:5003'  // Local development on port 5003
             : 'https://rizepics.onrender.com'; // Backend URL - Render deployment (UPDATE THIS when deploying Supabase backend)
         
         // Check if BACKEND_URL is still the placeholder
@@ -1434,7 +1434,18 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
 
             ordersList.innerHTML = orders.map(order => {
                 const date = new Date(order.timestamp);
-                const formattedDate = date.toLocaleString();
+                // Fix timezone: server stores UTC, display in local timezone properly
+                // Use explicit formatting to avoid timezone confusion
+                const formattedDate = date.toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                });
                 const isCompleted = order.completed || false;
                 
                 return `
