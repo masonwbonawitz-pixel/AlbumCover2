@@ -73,3 +73,4 @@ Image upload was not working - when user clicked "Upload" button and selected a 
 8. Editor panel is shown
 9. Image is displayed and ready for editing
 
+

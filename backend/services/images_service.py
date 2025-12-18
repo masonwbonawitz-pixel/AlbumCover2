@@ -72,3 +72,4 @@ class ImagesService:
             except Exception as e:
                 print(f"Could not delete old image: {e}")
 
+

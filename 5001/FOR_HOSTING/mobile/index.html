@@ -46,6 +46,16 @@
             history.scrollRestoration = 'manual';
         }
         window.scrollTo(0, 0);
+
+        // Normalize trailing slash on /mobile to avoid redirect loops (/mobile/ -> /mobile)
+        (function normalizeMobilePath() {
+            const path = window.location.pathname;
+            // If path ends with "/mobile/" exactly, strip trailing slash
+            if (path === '/mobile/') {
+                const normalized = '/mobile' + window.location.search + window.location.hash;
+                window.history.replaceState({}, '', normalized);
+            }
+        })();
         
         // Responsive resize detection - switch to desktop if window becomes large
         (function() {
@@ -71,7 +81,8 @@
                 // If window is large enough, switch to desktop
                 if (currentWidth >= BREAKPOINT) {
                     console.log('🖥️ Window width >= 1024px, redirecting to desktop...');
-                    window.location.href = '/desktop.html';
+                    // Use Flask route that serves desktop (handles caching and errors)
+                    window.location.href = '/desktop';
                 }
             }
             

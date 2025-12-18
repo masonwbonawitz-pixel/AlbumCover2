@@ -10,7 +10,7 @@ import uuid
 from typing import List, Tuple, Optional
 
 import numpy as np
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify, redirect
 from flask_cors import CORS
 from PIL import Image
 import trimesh
@@ -30,6 +30,14 @@ try:
 except ImportError:
     SHOPIFY_API_AVAILABLE = False
     print("⚠️  shopify_api.py not found")
+
+# Import Shopify Storefront API wrapper
+try:
+    from shopify_storefront_api import get_storefront_api
+    SHOPIFY_STOREFRONT_API_AVAILABLE = True
+except ImportError:
+    SHOPIFY_STOREFRONT_API_AVAILABLE = False
+    print("⚠️  shopify_storefront_api.py not found")
 
 # Import webhook handlers
 try:
@@ -56,6 +64,27 @@ FOUR_COLORS_RGB: List[Tuple[int, int, int]] = [
     (170, 170, 170),
     (255, 255, 255),
 ]
+
+
+def resolve_download_name(requested_name: Optional[str], default_name: str) -> str:
+    """
+    Return a safe filename (with extension) for downloads.
+    - Falls back to default_name if user input is empty/invalid
+    - Ensures the expected extension is present
+    - Strips path separators and null bytes
+    """
+    if not requested_name:
+        return default_name
+
+    safe_name = os.path.basename(requested_name).replace("\x00", "").strip()
+    if not safe_name:
+        return default_name
+
+    _, default_ext = os.path.splitext(default_name)
+    if default_ext and not safe_name.lower().endswith(default_ext.lower()):
+        safe_name = f"{safe_name}{default_ext}"
+
+    return safe_name
 
 
 def quantize_to_four_colors(rgb_colors: np.ndarray) -> np.ndarray:
@@ -255,42 +284,18 @@ def get_png_as_array(img: Image.Image) -> np.ndarray:
 
 
 def load_stl_vertices_faces(stl_bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load STL and return vertices/faces exactly as provided (no repairs or merges)
+    to preserve original geometry/topology.
+    """
     mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh', process=False)
     if mesh.is_empty:
         raise ValueError("Failed to load STL mesh or mesh is empty.")
-    
-    # Check and repair mesh to ensure it's watertight (manifold)
-    print(f"📊 Original mesh: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
-    print(f"   Watertight: {mesh.is_watertight}, Volume: {mesh.is_volume}")
-    
-    if not mesh.is_watertight:
-        print("⚠️  Mesh is not watertight - attempting repair...")
-        
-        # Fill holes in the mesh
-        trimesh.repair.fill_holes(mesh)
-        
-        # Fix normals (ensure they all point outward)
-        trimesh.repair.fix_normals(mesh)
-        
-        # Remove duplicate and degenerate faces
-        mesh.remove_duplicate_faces()
-        mesh.remove_degenerate_faces()
-        
-        # Merge duplicate vertices
-        mesh.merge_vertices()
-        
-        print(f"✅ After repair: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
-        print(f"   Watertight: {mesh.is_watertight}, Volume: {mesh.is_volume}")
-        
-        if not mesh.is_watertight:
-            print("⚠️  Warning: Mesh still has issues after repair, but continuing anyway...")
-    else:
-        print("✅ Mesh is already watertight!")
-    
-    # Trimesh already loads as triangles; STL files are triangle meshes
-    # Each cube in your grid is made of 12 triangles (2 per face)
+
     vertices = mesh.vertices.view(np.ndarray)
     faces = mesh.faces.view(np.ndarray)
+
+    print(f"✅ Loaded STL (no repair): {len(vertices)} vertices, {len(faces)} faces; watertight={mesh.is_watertight}, volume={mesh.is_volume}")
     return vertices, faces
 
 
@@ -1004,7 +1009,6 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
 
 def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int = 75) -> bytes:
     # For Normal mode (48), use UV texture mapping (bake image to texture)
-    # Always use 4 colors for all modes
     is_normal_mode = (grid_size == 48)
     if is_normal_mode:
         img = load_png(png_bytes, target_size=None)  # Keep full resolution
@@ -1017,9 +1021,7 @@ def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # Always quantize to 4 colors for all modes
-    triangle_colors = quantize_to_four_colors(triangle_colors)
-    print(f"✅ Generating 3MF with per-triangle colors (4 colors)")
+    print(f"✅ Generating 3MF with per-triangle colors (full palette preserved)")
     
     three_mf_bytes = write_3mf(vertices, faces, triangle_colors)
     return three_mf_bytes
@@ -1044,16 +1046,8 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # Debug: Check color distribution before quantization
-    unique_before = len(set(tuple(c) for c in triangle_colors))
-    print(f"📊 Color mapping complete: {unique_before} unique colors before quantization")
-    
-    # Always quantize to 4 colors for all modes
-    triangle_colors = quantize_to_four_colors(triangle_colors)
-    
-    # Debug: Verify quantization worked
-    unique_after = len(set(tuple(c) for c in triangle_colors))
-    print(f"📊 After quantization: {unique_after} unique colors (should be ≤4)")
+    unique_colors = len(set(tuple(c) for c in triangle_colors))
+    print(f"📊 Color mapping complete: {unique_colors} unique colors (no quantization applied)")
     
     # Use vertex colors for ALL modes (same approach that works for pixelated)
     obj_bytes, mtl_bytes = write_obj_with_colors(vertices, faces, triangle_colors, False, img_array)
@@ -1146,6 +1140,11 @@ def mobile():
     response.headers['Expires'] = '0'
     return response
 
+# Normalize trailing slash: /mobile/ -> /mobile
+@app.route('/mobile/')
+def mobile_slash():
+    return redirect('/mobile', code=301)
+
 @app.route('/mobile/fresh')
 @app.route('/mobile/<int:timestamp>')
 def mobile_fresh(timestamp=None):
@@ -1195,13 +1194,17 @@ def generate():
 
         # Generate 3MF
         three_mf_bytes = generate_3mf_from_inputs(stl_bytes, png_bytes, grid_size)
+        download_name = resolve_download_name(
+            request.form.get('filename') or request.args.get('filename'),
+            'output.3mf'
+        )
 
         # Return as downloadable file
         return send_file(
             io.BytesIO(three_mf_bytes),
             mimetype='application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
             as_attachment=True,
-            download_name='output.3mf'
+            download_name=download_name
         )
 
     except Exception as e:
@@ -1263,13 +1266,18 @@ def generate_obj_route():
         
         print(f"✅ ZIP size: {zip_buffer.getbuffer().nbytes} bytes")
         print("📤 Sending ZIP file to client...")
+
+        download_name = resolve_download_name(
+            request.form.get('filename') or request.args.get('filename'),
+            'colored_model.zip'
+        )
         
         # Return as downloadable ZIP
         return send_file(
             zip_buffer,
             mimetype='application/zip',
             as_attachment=True,
-            download_name='colored_model.zip'
+            download_name=download_name
         )
 
     except Exception as e:
@@ -1483,6 +1491,142 @@ def get_shopify_variants():
         return jsonify(variants)
     except Exception as e:
         print(f"❌ Error getting Shopify variants: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/create-cart', methods=['POST'])
+def create_shopify_cart():
+    """
+    Create a Shopify cart via Storefront API and return checkout URL
+    
+    Expected request body:
+    {
+        "size": 48|75|96,
+        "quantity": 1,
+        "customization_id": "cst_abc123",
+        "addons": {
+            "stand": true|false,
+            "mounting_dots": true|false
+        }
+    }
+    
+    Returns:
+    {
+        "checkout_url": "https://...",
+        "cart_id": "gid://shopify/Cart/...",
+        "customization_id": "cst_abc123"
+    }
+    """
+    if not SHOPIFY_STOREFRONT_API_AVAILABLE:
+        return jsonify({'error': 'Shopify Storefront API not available'}), 503
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        size = data.get('size')
+        quantity = data.get('quantity', 1)
+        customization_id = data.get('customization_id')
+        addons = data.get('addons', {})
+        
+        # Validate required fields
+        if not size or size not in [48, 75, 96]:
+            return jsonify({'error': 'Invalid size. Must be 48, 75, or 96'}), 400
+        
+        if not customization_id:
+            return jsonify({'error': 'customization_id is required'}), 400
+        
+        # Get Storefront API instance
+        storefront_api = get_storefront_api()
+        if not storefront_api.is_configured():
+            return jsonify({'error': 'Shopify Storefront API not configured'}), 503
+        
+        # Determine variant GID based on size (server-side validation)
+        # Map size to variant GID from environment variables
+        variant_env_key = f'SHOPIFY_VARIANT_{size}'
+        variant_gid = os.getenv(variant_env_key)
+        
+        if not variant_gid:
+            return jsonify({
+                'error': f'Variant for size {size}x{size} not configured',
+                'help': f'Set {variant_env_key} environment variable'
+            }), 500
+        
+        print(f"🛒 Creating cart for {size}x{size} (variant: {variant_gid})")
+        print(f"   Customization ID: {customization_id}")
+        print(f"   Addons: {addons}")
+        
+        # Build line attributes
+        attributes = [
+            {'key': 'size', 'value': f'{size}x{size}'},
+            {'key': 'customization_id', 'value': customization_id}
+        ]
+        
+        # Add addon flags as attributes
+        if addons.get('stand'):
+            attributes.append({'key': 'addon_stand', 'value': 'true'})
+        if addons.get('mounting_dots'):
+            attributes.append({'key': 'addon_mounting_dots', 'value': 'true'})
+        
+        # Create cart with main product variant
+        cart_result = storefront_api.create_cart(
+            variant_gid=variant_gid,
+            quantity=quantity,
+            customization_id=customization_id,
+            attributes=attributes
+        )
+        
+        if not cart_result:
+            return jsonify({'error': 'Failed to create cart'}), 500
+        
+        cart_id = cart_result['cart_id']
+        checkout_url = cart_result['checkout_url']
+        
+        # Add addon items to cart if selected
+        if addons.get('stand'):
+            stand_variant_gid = os.getenv('SHOPIFY_VARIANT_STAND')
+            if stand_variant_gid:
+                print(f"   Adding stand addon (variant: {stand_variant_gid})")
+                storefront_api.add_cart_lines(
+                    cart_id=cart_id,
+                    variant_gid=stand_variant_gid,
+                    quantity=1,
+                    attributes=[{'key': 'addon_type', 'value': 'stand'}]
+                )
+            else:
+                print(f"⚠️  Stand addon requested but SHOPIFY_VARIANT_STAND not configured")
+        
+        if addons.get('mounting_dots'):
+            mounting_variant_gid = os.getenv('SHOPIFY_VARIANT_MOUNTING')
+            if mounting_variant_gid:
+                print(f"   Adding mounting dots addon (variant: {mounting_variant_gid})")
+                storefront_api.add_cart_lines(
+                    cart_id=cart_id,
+                    variant_gid=mounting_variant_gid,
+                    quantity=1,
+                    attributes=[{'key': 'addon_type', 'value': 'mounting_dots'}]
+                )
+            else:
+                print(f"⚠️  Mounting dots addon requested but SHOPIFY_VARIANT_MOUNTING not configured")
+        
+        print(f"✅ Cart created successfully")
+        print(f"   Cart ID: {cart_id}")
+        print(f"   Checkout URL: {checkout_url}")
+        
+        # Return checkout URL and cart info
+        return jsonify({
+            'checkout_url': checkout_url,
+            'cart_id': cart_id,
+            'customization_id': customization_id,
+            'success': True
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"❌ Error creating cart: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -2188,7 +2332,11 @@ def download_order_file(order_id, filename):
     if not os.path.exists(file_path):
         return jsonify({'error': 'File not found'}), 404
     
-    return send_file(file_path, as_attachment=True)
+    download_name = resolve_download_name(
+        request.args.get('filename'),
+        os.path.basename(file_path)
+    )
+    return send_file(file_path, as_attachment=True, download_name=download_name)
 
 
 def validate_shopify_credentials():

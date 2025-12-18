@@ -34,3 +34,4 @@ class PricesService:
         
         return float(response.data['price']) if response.data else None
 
+

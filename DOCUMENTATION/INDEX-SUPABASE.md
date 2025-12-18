@@ -349,3 +349,4 @@ Choose your path:
 **Documentation Version**: 1.0
 **Compatible with**: Supabase v2.x, Python 3.8+, Flask 3.0+
 
+

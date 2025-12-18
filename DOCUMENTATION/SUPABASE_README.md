@@ -406,3 +406,4 @@ This Supabase integration provides:
 
 **Ready to start? Open SUPABASE_QUICK_START.md!**
 
+

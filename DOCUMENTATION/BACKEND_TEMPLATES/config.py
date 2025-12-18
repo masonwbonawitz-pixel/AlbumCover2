@@ -37,3 +37,4 @@ class Config:
         
         print("✅ Supabase configuration validated")
 
+

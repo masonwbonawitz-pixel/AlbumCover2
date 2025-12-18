@@ -73,3 +73,4 @@ python server.py
 - Use `SUPABASE_SERVICE_KEY` in backend (has admin access)
 - Use `SUPABASE_ANON_KEY` in frontend (limited access)
 
+

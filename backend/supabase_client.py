@@ -72,3 +72,4 @@ class SupabaseClient:
 # Create singleton instance
 supabase = SupabaseClient()
 
+

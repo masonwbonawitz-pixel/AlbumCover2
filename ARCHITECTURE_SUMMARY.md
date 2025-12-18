@@ -20,7 +20,7 @@ This is a **3D Album Cover Mosaic Builder** that allows users to upload images, 
 #### 1. **Image Upload & Processing**
 - Users upload images (PNG, JPG, HEIC supported)
 - Images are automatically resized to grid sizes: 48×48, 75×75, or 96×96
-- Real-time canvas preview with editing tools
+- Real-time canvas preview with editing tool
 
 #### 2. **Image Editing Tools**
 - **Crop Tool**: Drag-to-select area with square aspect ratio
@@ -240,4 +240,6 @@ These are generated from the **STL template + processed PNG image**.
 - **STL Files**: Pre-uploaded grid templates (NOT generated), stored in `stl_files/` directory
 - **Color Mapping**: Each pixel in processed image maps to one cube in STL grid
 - **File Generation**: Backend generates OBJ/MTL files with vertex colors from STL template + processed image
+
+
 

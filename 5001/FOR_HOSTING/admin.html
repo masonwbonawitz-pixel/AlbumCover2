@@ -1494,14 +1494,81 @@ Once you're happy with your design, click "Proceed to Checkout" to order your cu
                             </div>
                         </div>
                         <div class="order-files">
-                            <a href="${BACKEND_URL}/admin/orders/download/${order.order_id}/model.obj" class="file-download-btn" download>Download OBJ</a>
+                            <a href="${BACKEND_URL}/admin/orders/download/${order.order_id}/model.obj" class="file-download-btn" data-order-id="${order.order_id}" data-default-filename="model.obj">Download OBJ</a>
                         </div>
                     </div>
                 `;
             }).join('');
             
+            attachDownloadHandlers();
             // Update selected count after rendering
             updateSelectedCount();
+        }
+
+        function attachDownloadHandlers() {
+            const buttons = document.querySelectorAll('.file-download-btn');
+            buttons.forEach(btn => {
+                // Avoid stacking listeners if called multiple times
+                if (btn.dataset.hasDownloadHandler === 'true') return;
+                btn.dataset.hasDownloadHandler = 'true';
+
+                btn.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    const orderId = btn.dataset.orderId || '';
+                    const defaultFilename = btn.dataset.defaultFilename || 'model.obj';
+                    const suggestedBase = orderId ? `order_${orderId.substring(0, 8)}` : defaultFilename.replace(/\.obj$/i, '') || 'model';
+
+                    try {
+                        const response = await fetch(btn.href);
+                        if (!response.ok) {
+                            throw new Error(`Download failed (${response.status})`);
+                        }
+                        const blob = await response.blob();
+                        const defaultName = `${suggestedBase}.obj`;
+
+                        // Prefer native save dialog when available (Finder-style)
+                        if (window.showSaveFilePicker) {
+                            try {
+                                const handle = await window.showSaveFilePicker({
+                                    suggestedName: defaultName,
+                                    types: [
+                                        {
+                                            description: 'OBJ model',
+                                            accept: { 'model/obj': ['.obj'] }
+                                        }
+                                    ]
+                                });
+                                const writable = await handle.createWritable();
+                                await writable.write(blob);
+                                await writable.close();
+                                return;
+                            } catch (pickerErr) {
+                                // If user cancels, just return silently
+                                if (pickerErr && pickerErr.name === 'AbortError') return;
+                                console.warn('showSaveFilePicker failed, falling back to download', pickerErr);
+                            }
+                        }
+
+                        // Fallback: simple filename prompt + anchor download
+                        const userName = prompt('Choose a file name', suggestedBase);
+                        if (userName === null) return; // User cancelled
+                        const trimmed = userName.trim() || suggestedBase;
+                        const finalName = trimmed.toLowerCase().endsWith('.obj') ? trimmed : `${trimmed}.obj`;
+
+                        const url = URL.createObjectURL(blob);
+                        const anchor = document.createElement('a');
+                        anchor.href = url;
+                        anchor.download = finalName;
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        anchor.remove();
+                        URL.revokeObjectURL(url);
+                    } catch (error) {
+                        console.error('Download error:', error);
+                        alert(`Failed to download file: ${error.message || error}`);
+                    }
+                });
+            });
         }
 
         // Delete order

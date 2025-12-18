@@ -10,7 +10,7 @@ import uuid
 from typing import List, Tuple, Optional
 
 import numpy as np
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify, redirect
 from flask_cors import CORS
 from PIL import Image
 import trimesh
@@ -125,10 +125,31 @@ FOUR_COLORS_RGB: List[Tuple[int, int, int]] = [
 ]
 
 
+def resolve_download_name(requested_name: Optional[str], default_name: str) -> str:
+    """
+    Return a safe filename (with extension) for downloads.
+    Falls back to default_name when input is empty/invalid and enforces extension.
+    """
+    if not requested_name:
+        return default_name
+
+    safe_name = os.path.basename(requested_name).replace("\x00", "").strip()
+    if not safe_name:
+        return default_name
+
+    _, default_ext = os.path.splitext(default_name)
+    if default_ext and not safe_name.lower().endswith(default_ext.lower()):
+        safe_name = f"{safe_name}{default_ext}"
+
+    return safe_name
+
+
 def quantize_to_four_colors(rgb_colors: np.ndarray) -> np.ndarray:
     """
     Quantize RGB colors to the nearest of the 4 allowed colors.
     Uses Euclidean distance in RGB space to find the closest match.
+    CRITICAL: Ensures dark gray (85,85,85) is preserved correctly.
+    For grayscale colors (R≈G≈B), uses a more lenient threshold to preserve dark gray.
     Args:
         rgb_colors: Array of shape (N, 3) with RGB values 0-255
     Returns:
@@ -139,6 +160,47 @@ def quantize_to_four_colors(rgb_colors: np.ndarray) -> np.ndarray:
     
     # Reshape input to (N, 1, 3) for broadcasting
     rgb_colors_float = rgb_colors.astype(np.float32)
+    rgb_colors_reshaped = rgb_colors_float[:, np.newaxis, :]  # (N, 1, 3)
+    
+    # PRE-PROCESSING: For grayscale colors (R≈G≈B), use threshold-based mapping
+    # This ensures black stays black and dark gray stays dark gray
+    # CRITICAL: Use proper thresholds to prevent black from mapping to dark gray
+    is_grayscale = (np.abs(rgb_colors_float[:, 0] - rgb_colors_float[:, 1]) < 5) & \
+                   (np.abs(rgb_colors_float[:, 1] - rgb_colors_float[:, 2]) < 5)
+    
+    # For grayscale colors, use threshold-based mapping with proper boundaries
+    if np.any(is_grayscale):
+        gray_values = rgb_colors_float[is_grayscale].mean(axis=1)  # Average of R,G,B
+        grayscale_indices = np.where(is_grayscale)[0]
+        
+        # Use threshold-based mapping to ensure proper color boundaries:
+        # Black: 0-42 (midpoint between 0 and 85)
+        # Dark Gray: 43-127 (midpoint between 85 and 170)
+        # Light Gray: 128-212 (midpoint between 170 and 255)
+        # White: 213-255
+        for i, gray_val in enumerate(gray_values):
+            orig_idx = grayscale_indices[i]
+            if gray_val <= 42.5:
+                # Map to black (0,0,0)
+                rgb_colors_float[orig_idx] = colors_array[0]
+            elif gray_val <= 127.5:
+                # Map to dark gray (85,85,85)
+                rgb_colors_float[orig_idx] = colors_array[1]
+            elif gray_val <= 212.5:
+                # Map to light gray (170,170,170)
+                rgb_colors_float[orig_idx] = colors_array[2]
+            else:
+                # Map to white (255,255,255)
+                rgb_colors_float[orig_idx] = colors_array[3]
+    
+    # ADDITIONAL SAFEGUARD: Very dark colors (max component < 43) should map to black
+    # This prevents near-black colors from being mapped to dark gray
+    max_component = np.max(rgb_colors_float, axis=1)
+    very_dark_mask = max_component < 43
+    if np.any(very_dark_mask):
+        rgb_colors_float[very_dark_mask] = colors_array[0]  # Force to black
+    
+    # Re-reshape after preprocessing
     rgb_colors_reshaped = rgb_colors_float[:, np.newaxis, :]  # (N, 1, 3)
     
     # Calculate Euclidean distance to each of the 4 colors
@@ -154,20 +216,43 @@ def quantize_to_four_colors(rgb_colors: np.ndarray) -> np.ndarray:
         mask = closest_indices == i
         quantized[mask] = np.array(exact_color, dtype=np.uint8)
     
-    # Debug: Print color usage statistics
+    # Debug: Print color usage statistics with sample colors
     unique_colors_used = set(closest_indices)
-    color_names = ["Black", "Dark Gray", "Light Gray", "White"]
+    color_names = ["Black (0,0,0)", "Dark Gray (85,85,85)", "Light Gray (170,170,170)", "White (255,255,255)"]
     print(f"📊 Quantization: Using {len(unique_colors_used)} out of 4 colors")
+    
+    # Show sample of input colors that map to each output color
     for idx in sorted(unique_colors_used):
-        count = np.sum(closest_indices == idx)
+        mask = closest_indices == idx
+        count = np.sum(mask)
         percentage = count / len(closest_indices) * 100
         print(f"   - {color_names[idx]}: {count} triangles ({percentage:.1f}%)")
+        
+        # Show sample of input colors that mapped to this output color
+        if count > 0:
+            sample_inputs = rgb_colors[mask][:5]  # First 5 examples
+            print(f"      Sample input colors: {sample_inputs.tolist()}")
     
     # Check if all 4 colors are present
     missing_colors = set(range(4)) - unique_colors_used
     if missing_colors:
         print(f"⚠️  Warning: Missing colors: {[color_names[i] for i in missing_colors]}")
-        print(f"   This is normal if the image doesn't contain those color ranges.")
+        
+        # Debug: Check if input colors are close to missing colors
+        for missing_idx in missing_colors:
+            target_color = np.array(FOUR_COLORS_RGB[missing_idx], dtype=np.float32)
+            # Find colors that are close to the missing color
+            color_diffs = np.abs(rgb_colors_float - target_color)
+            max_diff = np.max(color_diffs, axis=1)
+            close_colors = rgb_colors[max_diff < 20]  # Within 20 RGB units
+            if len(close_colors) > 0:
+                print(f"      Found {len(close_colors)} colors close to {color_names[missing_idx]}:")
+                unique_close = np.unique(close_colors, axis=0)[:5]
+                print(f"      Sample: {unique_close.tolist()}")
+                # Check what they're being mapped to
+                close_indices = closest_indices[max_diff < 20]
+                mapped_to = [color_names[i] for i in np.unique(close_indices)]
+                print(f"      These are being mapped to: {mapped_to}")
     
     return quantized
 
@@ -306,12 +391,33 @@ def _set_triangle_color(mf, mesh_obj, tri_index: int, resource_id: int, color_in
 
 
 def load_png(image_bytes: bytes, target_size: Optional[int] = None) -> Image.Image:
+    """
+    Load PNG image preserving exact color values.
+    Uses NEAREST neighbor resizing to prevent color interpolation.
+    """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     if target_size is not None:
         if img.size != (target_size, target_size):
             img = img.resize((target_size, target_size), Image.NEAREST)
     elif img.size != (75, 75):
         img = img.resize((75, 75), Image.NEAREST)
+    
+    # Debug: Check if image contains the expected 4-color palette
+    arr = np.asarray(img, dtype=np.uint8)
+    unique_colors = np.unique(arr.reshape(-1, 3), axis=0)
+    print(f"📸 Loaded image: {img.size}, {len(unique_colors)} unique colors")
+    
+    # Check if we have the expected 4-color palette
+    expected_colors = set(tuple(c) for c in FOUR_COLORS_RGB)
+    actual_colors = set(tuple(c) for c in unique_colors)
+    matching = expected_colors.intersection(actual_colors)
+    if len(matching) < len(expected_colors):
+        print(f"⚠️  Image has {len(matching)}/{len(expected_colors)} expected colors")
+        missing = expected_colors - matching
+        print(f"   Missing: {missing}")
+        # Show sample of actual colors
+        print(f"   Sample actual colors: {list(actual_colors)[:10]}")
+    
     return img
 
 
@@ -322,6 +428,10 @@ def get_png_as_array(img: Image.Image) -> np.ndarray:
 
 
 def load_stl_vertices_faces(stl_bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load STL and repair mesh to ensure it's manifold (no non-manifold edges).
+    Performs vertex merging, degenerate face removal, and normal fixing.
+    """
     mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh', process=False)
     if mesh.is_empty:
         raise ValueError("Failed to load STL mesh or mesh is empty.")
@@ -372,10 +482,28 @@ def load_stl_vertices_faces(stl_bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
             print(f"   ⚠️  Could not remove degenerate faces: {e}")
         
         try:
-            # Merge duplicate vertices
+            # Merge duplicate vertices - THIS IS CRITICAL for preventing non-manifold edges
+            # Use aggressive merging for large meshes
             mesh.merge_vertices()
+            print(f"   ✓ Merged duplicate vertices")
         except Exception as e:
             print(f"   ⚠️  Could not merge vertices: {e}")
+        
+        try:
+            # Additional aggressive vertex merging with tolerance for large meshes
+            # This helps reduce non-manifold edges by welding nearby vertices
+            original_verts = len(mesh.vertices)
+            mesh.merge_vertices(merge_tex=True, merge_norm=True, digits_vertex=6)
+            if len(mesh.vertices) < original_verts:
+                print(f"   ✓ Aggressive merge removed {original_verts - len(mesh.vertices)} redundant vertices")
+        except Exception as e:
+            print(f"   ⚠️  Could not perform aggressive merge: {e}")
+        
+        try:
+            # Remove unreferenced vertices
+            mesh.remove_unreferenced_vertices()
+        except Exception as e:
+            print(f"   ⚠️  Could not remove unreferenced vertices: {e}")
         
         print(f"✅ After repair: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
         print(f"   Watertight: {mesh.is_watertight}, Volume: {mesh.is_volume}")
@@ -384,11 +512,35 @@ def load_stl_vertices_faces(stl_bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
             print("⚠️  Warning: Mesh still has issues after repair, but continuing anyway...")
     else:
         print("✅ Mesh is already watertight!")
+        # Still do aggressive vertex merging even for watertight meshes
+        try:
+            original_verts = len(mesh.vertices)
+            mesh.merge_vertices(merge_tex=True, merge_norm=True, digits_vertex=6)
+            if len(mesh.vertices) < original_verts:
+                print(f"   ✓ Optimized: removed {original_verts - len(mesh.vertices)} redundant vertices")
+        except:
+            pass
+    
+    # Final aggressive optimization pass
+    try:
+        # One more aggressive merge to ensure minimal vertices
+        original_verts = len(mesh.vertices)
+        original_faces = len(mesh.faces)
+        
+        # Merge vertices with slightly higher tolerance for large meshes
+        if original_faces > 50000:  # 96x96 typically has ~92k faces
+            print(f"   Large mesh detected ({original_faces} faces), applying extra optimization...")
+            mesh.merge_vertices(merge_tex=True, merge_norm=True, digits_vertex=5)
+            if len(mesh.vertices) < original_verts:
+                print(f"   ✓ Extra optimization: {original_verts} → {len(mesh.vertices)} vertices")
+    except Exception as e:
+        print(f"   ⚠️  Could not perform final optimization: {e}")
     
     # Trimesh already loads as triangles; STL files are triangle meshes
-    # Each cube in your grid is made of 12 triangles (2 per face)
     vertices = mesh.vertices.view(np.ndarray)
     faces = mesh.faces.view(np.ndarray)
+    
+    print(f"📊 Final mesh: {len(vertices)} vertices, {len(faces)} faces")
     return vertices, faces
 
 
@@ -1193,65 +1345,206 @@ def write_obj_with_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colo
 
 def write_obj_with_vertex_colors(vertices: np.ndarray, faces: np.ndarray, triangle_colors: np.ndarray, is_normal_mode: bool = False) -> bytes:
     """
-    Write OBJ file with vertex colors embedded directly in vertex lines.
-    Format: v x y z r g b (extended OBJ format widely supported by 3D software)
-    This is more compatible with various 3D applications than MTL materials.
-    Returns: obj_bytes (no MTL file needed - colors are embedded in OBJ)
+    Write OBJ file with vertex colors using REGION-BASED vertex duplication.
+    Groups same-color triangles into regions, keeps vertices shared within regions (manifold),
+    and only duplicates at region boundaries for sharp color edges.
     
     Args:
-        vertices: Array of vertex positions
-        faces: Array of face indices
+        vertices: Array of vertex positions (from repaired mesh)
+        faces: Array of face indices (from repaired mesh)
         triangle_colors: Array of RGB colors for each triangle (0-255 range)
         is_normal_mode: If True (48x48), preserves all colors. If False, ensures 4-color palette.
     """
     if is_normal_mode:
-        print(f"✅ Creating OBJ with vertex colors (Normal mode - all colors preserved)")
+        print(f"✅ Creating OBJ with region-based approach (Normal mode)")
     else:
-        print(f"✅ Creating OBJ with vertex colors (4-color palette)")
+        print(f"✅ Creating OBJ with region-based approach (4-color palette)")
     
-    # Create OBJ file with vertex colors
-    obj_content = []
-    obj_content.append("# Colored Album Cover Model")
-    obj_content.append("# Colors preserved from original PNG")
-    obj_content.append("# Vertex colors embedded directly: v x y z r g b")
-    obj_content.append("# Vertices duplicated per triangle to prevent color interpolation")
-    obj_content.append("")
+    # Quantize triangle colors to exact 4-color palette (if not Normal mode)
+    if not is_normal_mode:
+        four_colors = np.array([
+            [0, 0, 0],       # Black
+            [85, 85, 85],    # Dark Gray
+            [170, 170, 170], # Light Gray
+            [255, 255, 255]  # White
+        ], dtype=np.float32)
+        
+        # Quantize each triangle color to nearest of 4 colors
+        quantized_triangle_colors = np.zeros_like(triangle_colors)
+        for i in range(len(triangle_colors)):
+            distances = np.sum((four_colors - triangle_colors[i]) ** 2, axis=1)
+            nearest_idx = np.argmin(distances)
+            quantized_triangle_colors[i] = four_colors[nearest_idx]
+        triangle_colors = quantized_triangle_colors
     
-    # Build all vertices with their colors
-    # Duplicate vertices per triangle to prevent color interpolation at edges
-    all_vertices = []
-    all_vertex_colors = []
-    all_faces = []
+    # Convert triangle colors to tuples for hashing
+    triangle_color_tuples = [tuple(map(int, c)) for c in triangle_colors]
+    
+    from collections import defaultdict
+    
+    # Build face adjacency: which faces share edges
+    print(f"   Building face adjacency graph...")
+    face_adjacency = defaultdict(set)  # face_idx -> set of adjacent face indices
+    edge_to_faces = defaultdict(list)  # edge -> list of face indices
     
     for face_idx, face in enumerate(faces):
-        # Get the three vertices for this triangle
-        v0 = vertices[face[0]]
-        v1 = vertices[face[1]]
-        v2 = vertices[face[2]]
+        # Get edges (as sorted tuples for consistency)
+        edges = [
+            tuple(sorted([face[0], face[1]])),
+            tuple(sorted([face[1], face[2]])),
+            tuple(sorted([face[2], face[0]]))
+        ]
+        for edge in edges:
+            edge_to_faces[edge].append(face_idx)
+    
+    # Build adjacency from shared edges
+    for edge, face_list in edge_to_faces.items():
+        if len(face_list) == 2:  # Shared edge
+            face_adjacency[face_list[0]].add(face_list[1])
+            face_adjacency[face_list[1]].add(face_list[0])
+    
+    # Group faces into regions by color using flood-fill
+    print(f"   Grouping {len(faces)} triangles into color regions...")
+    visited = [False] * len(faces)
+    regions = []  # List of (color_tuple, [face_indices])
+    
+    for start_face in range(len(faces)):
+        if visited[start_face]:
+            continue
         
-        # Get triangle color (normalize to 0.0-1.0 for OBJ vertex colors)
-        r, g, b = triangle_colors[face_idx]
+        # Start new region with flood-fill
+        region_color = triangle_color_tuples[start_face]
+        region_faces = []
+        queue = [start_face]
+        visited[start_face] = True
+        
+        while queue:
+            face_idx = queue.pop(0)
+            region_faces.append(face_idx)
+            
+            # Check adjacent faces
+            for adj_face in face_adjacency[face_idx]:
+                if not visited[adj_face] and triangle_color_tuples[adj_face] == region_color:
+                    visited[adj_face] = True
+                    queue.append(adj_face)
+        
+        regions.append((region_color, region_faces))
+    
+    print(f"   Found {len(regions)} color regions")
+    
+    # For each region, identify boundary vertices (shared with other-colored regions)
+    print(f"   Identifying region boundaries...")
+    region_boundary_vertices = []  # List of sets of vertex indices that are boundaries
+    
+    for region_idx, (region_color, region_faces) in enumerate(regions):
+        boundary_verts = set()
+        
+        for face_idx in region_faces:
+            # Check each edge of this face
+            face = faces[face_idx]
+            edges = [
+                tuple(sorted([face[0], face[1]])),
+                tuple(sorted([face[1], face[2]])),
+                tuple(sorted([face[2], face[0]]))
+            ]
+            
+            for edge in edges:
+                # Check if this edge is shared with a different-colored face
+                if edge in edge_to_faces:
+                    for adj_face_idx in edge_to_faces[edge]:
+                        if adj_face_idx != face_idx and triangle_color_tuples[adj_face_idx] != region_color:
+                            # This edge is a boundary - mark both vertices
+                            boundary_verts.add(edge[0])
+                            boundary_verts.add(edge[1])
+        
+        region_boundary_vertices.append(boundary_verts)
+    
+    # Build vertex mapping with minimal duplication
+    print(f"   Building vertex mapping with region-based duplication...")
+    all_vertices = []
+    all_vertex_colors = []
+    vertex_mapping = {}  # Maps (face_idx, vertex_in_face) -> new_vertex_index
+    
+    # Track which original vertices have been used by which regions
+    vertex_region_map = {}  # (vertex_idx, region_color) -> new_vertex_idx
+    
+    for region_idx, (region_color, region_faces) in enumerate(regions):
+        boundary_verts = region_boundary_vertices[region_idx]
+        
+        for face_idx in region_faces:
+            face = faces[face_idx]
+            
+            for pos, vertex_idx in enumerate(face):
+                key = (vertex_idx, region_color)
+                
+                # Check if we've already created this vertex for this region
+                if key in vertex_region_map:
+                    new_vertex_idx = vertex_region_map[key]
+                else:
+                    # Create new vertex
+                    new_vertex_idx = len(all_vertices)
+                    all_vertices.append(vertices[vertex_idx])
+                    all_vertex_colors.append(region_color)
+                    vertex_region_map[key] = new_vertex_idx
+                
+                vertex_mapping[(face_idx, pos)] = new_vertex_idx
+    
+    # Post-process: merge duplicate vertices (same position + same color)
+    print(f"   Post-processing: merging duplicate vertices...")
+    vertex_hash_map = {}  # Hash (position, color) -> canonical vertex index
+    vertex_remap = {}  # old_idx -> new_idx
+    final_vertices = []
+    final_vertex_colors = []
+    
+    for old_idx, (v, color) in enumerate(zip(all_vertices, all_vertex_colors)):
+        # Create hash key with rounded position (to handle floating point precision)
+        pos_hash = (round(v[0], 6), round(v[1], 6), round(v[2], 6))
+        key = (pos_hash, color)
+        
+        if key in vertex_hash_map:
+            # Reuse existing vertex
+            vertex_remap[old_idx] = vertex_hash_map[key]
+        else:
+            # Create new vertex
+            new_idx = len(final_vertices)
+            final_vertices.append(v)
+            final_vertex_colors.append(color)
+            vertex_hash_map[key] = new_idx
+            vertex_remap[old_idx] = new_idx
+    
+    if len(final_vertices) < len(all_vertices):
+        print(f"   ✓ Merged {len(all_vertices) - len(final_vertices)} duplicate vertices")
+    
+    # Build new faces with remapped vertices
+    all_faces = []
+    for face_idx in range(len(faces)):
+        old_v1 = vertex_mapping[(face_idx, 0)]
+        old_v2 = vertex_mapping[(face_idx, 1)]
+        old_v3 = vertex_mapping[(face_idx, 2)]
+        
+        v1 = vertex_remap[old_v1] + 1  # OBJ is 1-indexed
+        v2 = vertex_remap[old_v2] + 1
+        v3 = vertex_remap[old_v3] + 1
+        all_faces.append((v1, v2, v3))
+    
+    # Use final merged vertices
+    all_vertices = final_vertices
+    all_vertex_colors = final_vertex_colors
+    
+    # Create OBJ file
+    obj_content = []
+    obj_content.append("# Colored Album Cover Model")
+    obj_content.append("# Vertex colors embedded directly: v x y z r g b")
+    obj_content.append("# Region-based approach: minimal duplication at color boundaries")
+    obj_content.append("")
+    
+    # Write vertices with embedded colors
+    for i, v in enumerate(all_vertices):
+        r, g, b = all_vertex_colors[i]
         r_norm = r / 255.0
         g_norm = g / 255.0
         b_norm = b / 255.0
-        
-        # Add vertices and their colors
-        vertex_base_idx = len(all_vertices)
-        all_vertices.append(v0)
-        all_vertex_colors.append((r_norm, g_norm, b_norm))
-        all_vertices.append(v1)
-        all_vertex_colors.append((r_norm, g_norm, b_norm))
-        all_vertices.append(v2)
-        all_vertex_colors.append((r_norm, g_norm, b_norm))
-        
-        # Create new face indices (1-indexed for OBJ)
-        all_faces.append((vertex_base_idx + 1, vertex_base_idx + 2, vertex_base_idx + 3))
-    
-    # Write vertices with colors embedded directly: v x y z r g b
-    # This is the extended OBJ format that's widely supported
-    for i, v in enumerate(all_vertices):
-        r, g, b = all_vertex_colors[i]
-        obj_content.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {r:.6f} {g:.6f} {b:.6f}")
+        obj_content.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {r_norm:.6f} {g_norm:.6f} {b_norm:.6f}")
     
     obj_content.append("")
     
@@ -1261,8 +1554,12 @@ def write_obj_with_vertex_colors(vertices: np.ndarray, faces: np.ndarray, triang
     
     obj_bytes = "\n".join(obj_content).encode('utf-8')
     
-    unique_colors = len(set(tuple(c) for c in triangle_colors))
-    print(f"✅ Created OBJ with vertex colors ({unique_colors} unique colors, {len(all_vertices)} vertices)")
+    unique_colors = len(set(triangle_color_tuples))
+    original_vertex_count = len(vertices)
+    new_vertex_count = len(all_vertices)
+    duplication_ratio = new_vertex_count / original_vertex_count if original_vertex_count > 0 else 1.0
+    
+    print(f"✅ Created OBJ: {unique_colors} colors, {len(regions)} regions, {original_vertex_count}→{new_vertex_count} vertices ({duplication_ratio:.2f}x), {len(all_faces)} faces")
     return obj_bytes
 
 
@@ -1289,13 +1586,7 @@ def generate_3mf_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # For Normal mode: use exact colors from image (no quantization)
-    # For pixelated modes: quantize to 4 colors
-    if not is_normal_mode:
-        triangle_colors = quantize_to_four_colors(triangle_colors)
-        print(f"✅ Generating 3MF with per-triangle colors (4-color palette)")
-    else:
-        print(f"✅ Generating 3MF with per-triangle colors (exact colors from image)")
+    print(f"✅ Generating 3MF with per-triangle colors (full palette preserved)")
     
     try:
         three_mf_bytes = write_3mf(vertices, faces, triangle_colors)
@@ -1330,18 +1621,13 @@ def generate_obj_from_inputs(stl_bytes: bytes, png_bytes: bytes, grid_size: int 
     mapping_grid_size = img_array.shape[0] if is_normal_mode else grid_size
     triangle_colors = get_triangle_colors_from_image(vertices, faces, img_array, mapping_grid_size)
     
-    # For Normal mode: use exact colors from image (no quantization)
-    # For pixelated modes: quantize to 4 colors
-    if not is_normal_mode:
-        triangle_colors = quantize_to_four_colors(triangle_colors)
-        print(f"⚙️  Generating OBJ with vertex colors (4-color palette)")
-    else:
-        print(f"⚙️  Generating OBJ with vertex colors (exact colors from image)")
+    unique_colors = len(set(tuple(c) for c in triangle_colors))
+    print(f"⚙️  Generating OBJ with embedded vertex colors ({unique_colors} unique colors, manifold geometry preserved)")
     
-    # Generate OBJ with vertex colors (primary method for Bambu Studio)
+    # Generate OBJ with embedded vertex colors (single file, preserves manifold geometry)
     obj_bytes = write_obj_with_vertex_colors(vertices, faces, triangle_colors, is_normal_mode)
     
-    # Return OBJ bytes, empty MTL bytes, and None for texture
+    # Return OBJ bytes, no MTL needed (colors are embedded), and None for texture
     return obj_bytes, b"", None
 
 
@@ -1459,6 +1745,11 @@ def mobile():
     response.headers['Expires'] = '0'
     return response
 
+# Normalize trailing slash: /mobile/ -> /mobile
+@app.route('/mobile/')
+def mobile_slash():
+    return redirect('/mobile', code=301)
+
 @app.route('/mobile/fresh')
 @app.route('/mobile/<int:timestamp>')
 def mobile_fresh(timestamp=None):
@@ -1511,13 +1802,17 @@ def generate():
 
         # Generate OBJ with vertex colors (primary method for Bambu Studio)
         obj_bytes, mtl_bytes, texture_bytes = generate_obj_from_inputs(stl_bytes, png_bytes, grid_size)
+        download_name = resolve_download_name(
+            request.form.get('filename') or request.args.get('filename'),
+            'output.obj'
+        )
 
         # Return OBJ file directly (no MTL needed - colors are embedded via vc commands)
         return send_file(
             io.BytesIO(obj_bytes),
             mimetype='model/obj',
             as_attachment=True,
-            download_name='output.obj'
+            download_name=download_name
         )
 
     except Exception as e:
@@ -1595,11 +1890,15 @@ def generate_obj_route():
             del texture_png_bytes
         gc.collect()
         print("📤 Sending OBJ file with vertex colors to client...")
+        download_name = resolve_download_name(
+            request.form.get('filename') or request.args.get('filename'),
+            'colored_model.obj'
+        )
         return send_file(
             io.BytesIO(obj_bytes),
             mimetype='model/obj',
             as_attachment=True,
-            download_name='colored_model.obj'
+            download_name=download_name
         )
 
     except Exception as e:
@@ -1771,7 +2070,7 @@ def upload_for_checkout():
         order_dir = os.path.join(orders_dir, order_id)
         os.makedirs(order_dir, exist_ok=True)
         
-        # Save OBJ file with vertex colors (Bambu Studio compatible)
+        # Save OBJ file with embedded vertex colors (single file, manifold geometry)
         model_path = os.path.join(order_dir, 'model.obj')
         with open(model_path, 'wb') as f:
             f.write(obj_bytes)
@@ -3019,12 +3318,16 @@ def download_order_file(order_id, filename):
         
         print(f"✅ Serving file: {file_path} (size: {os.path.getsize(file_path)} bytes, mimetype: {mimetype})")
         
-        # Send the file
+        # Send the file (allow optional custom download name)
+        download_name = resolve_download_name(
+            request.args.get('filename'),
+            filename
+        )
         response = send_file(
             file_path,
             mimetype=mimetype,
             as_attachment=True,
-            download_name=filename
+            download_name=download_name
         )
         # CORS headers already set by after_request, but ensure they're there
         response.headers['Access-Control-Allow-Origin'] = '*'

@@ -554,3 +554,4 @@ python-dotenv==1.0.0
 3. See `SUPABASE_FLASK_ROUTES.md` for updated Flask routes
 4. Test each service individually before integrating
 
+

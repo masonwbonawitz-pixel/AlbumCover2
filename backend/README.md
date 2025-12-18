@@ -175,3 +175,4 @@ Your Supabase backend is fully set up and ready to use!
 - `SUPABASE_README.md`
 - `INDEX-SUPABASE.md`
 
+

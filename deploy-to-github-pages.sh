@@ -56,3 +56,5 @@ echo "5. Set Source to 'Deploy from a branch' > 'main' (or your branch) > '/ (ro
 echo "6. Your site will be available at: https://masonwbonawitz-pixel.github.io/AlbumCover2/"
 echo ""
 
+
+
